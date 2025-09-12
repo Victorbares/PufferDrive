@@ -20,6 +20,7 @@ import configparser
 from threading import Thread
 from collections import defaultdict, deque
 
+import pandas as pd
 import numpy as np
 import psutil
 
@@ -274,6 +275,9 @@ class PuffeRL:
 
                 logits, value = self.policy.forward_eval(o_device, state)
                 action, logprob, _ = pufferlib.pytorch.sample_logits(logits)
+
+                # From params traj to continuous bicycle actions
+                
                 r = torch.clamp(r, -1, 1)
 
             profile("eval_copy", epoch)
@@ -990,6 +994,7 @@ def train(env_name, args=None, vecenv=None, policy=None, logger=None):
 def eval(env_name, args=None, vecenv=None, policy=None):
     args = args or load_config(env_name)
     backend = args["vec"]["backend"]
+    args['env']['resample_frequency'] = 91
     if backend != "PufferEnv":
         backend = "Serial"
 
@@ -1021,11 +1026,11 @@ def eval(env_name, args=None, vecenv=None, policy=None):
             time.sleep(1 / args["fps"])
         elif driver.render_mode == "rgb_array":
             pass
-            # import cv2
-            # render = cv2.cvtColor(render, cv2.COLOR_RGB2BGR)
-            # cv2.imshow('frame', render)
-            # cv2.waitKey(1)
-            # time.sleep(1/args['fps'])
+            import cv2
+            render = cv2.cvtColor(render, cv2.COLOR_RGB2BGR)
+            cv2.imshow('frame', render)
+            cv2.waitKey(1)
+            time.sleep(1/args['fps'])
 
         with torch.no_grad():
             ob = torch.as_tensor(ob).to(device)
@@ -1044,6 +1049,63 @@ def eval(env_name, args=None, vecenv=None, policy=None):
             imageio.mimsave(args["gif_path"], frames, fps=args["fps"], loop=0)
             frames.append("Done")
 
+
+def eval_pipeline(env_name, args=None, vecenv=None, policy=None, num_scenarios_loops=10):
+    args = args or load_config(env_name)
+    backend = args["vec"]["backend"]
+    args['env']['resample_frequency'] = 91 # Change episodes every 91 steps
+    if backend != "PufferEnv":
+        backend = "Serial"
+
+    args["vec"] = dict(backend=backend, num_envs=1)
+    vecenv = vecenv or load_env(env_name, args)
+    policy = policy or load_policy(args, vecenv, env_name)
+    ob, info = vecenv.reset()
+    num_agents = vecenv.observation_space.shape[0]
+    device = args["train"]["device"]
+
+    state = {}
+    if args["train"]["use_rnn"]:
+        state = dict(
+            lstm_h=torch.zeros(num_agents, policy.hidden_size, device=device),
+            lstm_c=torch.zeros(num_agents, policy.hidden_size, device=device),
+        )
+
+    global_infos = {}
+
+    for scenario in range(num_scenarios_loops):
+        print(f"Scenario {scenario+1}/{num_scenarios_loops}")
+        ob, _ = vecenv.reset()
+        for ts in range(91):
+            with torch.no_grad():
+                ob = torch.as_tensor(ob).to(device)
+                logits, value = policy.forward_eval(ob, state)
+                action, logprob, _ = pufferlib.pytorch.sample_logits(logits)
+                action = action.cpu().numpy().reshape(vecenv.action_space.shape)
+
+            if isinstance(logits, torch.distributions.Normal):
+                action = np.clip(action, vecenv.action_space.low, vecenv.action_space.high)
+
+            ob, _, _, _, infos = vecenv.step(action)
+            if infos:
+                for k, v in infos[0].items():
+                    if k not in global_infos:
+                        global_infos[k] = []
+                    global_infos[k].append(v)
+    # === Final averages ===
+    avg_infos = {
+    k: (np.sum(v) if k == "num_scenarios" else np.mean(v))
+    for k, v in global_infos.items()    
+    }
+    # === Export to CSV ===
+    df = pd.DataFrame(list(avg_infos.items()), columns=["Metric", "Average"])
+    eval_folder = f"benchmark/{os.path.basename(args['load_model_path'])}"
+    os.makedirs(eval_folder, exist_ok=True)
+    csv_path = os.path.join(eval_folder, "evaluation_summary.csv")
+    df.to_csv(csv_path, index=False)
+
+    print(f"\n✅ Results exported to {csv_path}")
+    print(df.to_string(index=False))  # pretty console print
 
 def sweep(args=None, env_name=None):
     args = args or load_config(env_name)
@@ -1264,6 +1326,8 @@ def main():
         train(env_name=env_name)
     elif mode == "eval":
         eval(env_name=env_name)
+    elif mode == 'eval_pipeline':
+        eval_pipeline(env_name=env_name, num_scenarios_loops=1)
     elif mode == "sweep":
         sweep(env_name=env_name)
     elif mode == "autotune":

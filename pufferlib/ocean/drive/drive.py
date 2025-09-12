@@ -23,6 +23,7 @@ class Drive(pufferlib.PufferEnv):
         resample_frequency=91,
         num_maps=100,
         num_agents=512,
+        action_type="discrete",
         buf=None,
         seed=1,
     ):
@@ -39,10 +40,14 @@ class Drive(pufferlib.PufferEnv):
         self.resample_frequency = resample_frequency
         self.num_obs = 7 + 63 * 7 + 200 * 7
         self.single_observation_space = gymnasium.spaces.Box(low=-1, high=1, shape=(self.num_obs,), dtype=np.float32)
-        self.single_action_space = gymnasium.spaces.MultiDiscrete([7, 13])
-        # self.single_action_space = gymnasium.spaces.Box(
-        #     low=-1, high=1, shape=(2,), dtype=np.float32
-        # )
+        if action_type == "discrete":
+            self.single_action_space = gymnasium.spaces.MultiDiscrete([7, 13])
+        elif action_type == "continuous":
+            self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32)
+        else:
+            raise ValueError("action_space must be 'discrete' or 'continuous'")
+
+        self._action_type_flag = 0 if action_type == "discrete" else 1
         # Check if resources directory exists
         binary_path = "resources/drive/binaries/map_000.bin"
         if not os.path.exists(binary_path):
@@ -66,6 +71,7 @@ class Drive(pufferlib.PufferEnv):
                 self.terminals[cur:nxt],
                 self.truncations[cur:nxt],
                 seed,
+                action_type=self._action_type_flag,
                 human_agent_idx=human_agent_idx,
                 reward_vehicle_collision=reward_vehicle_collision,
                 reward_offroad_collision=reward_offroad_collision,
@@ -87,6 +93,11 @@ class Drive(pufferlib.PufferEnv):
     def step(self, actions):
         self.terminals[:] = 0
         self.actions[:] = actions
+
+        # Dreaming step
+        # 1. From actions - traj parameters to trajectory waypoints
+        # 2. 
+        # 3. From traj waypoints to low-level control (acceleration, steering) --> First accel, steering for the first way point with MPC
         binding.vec_step(self.c_envs)
         self.tick += 1
         info = []
@@ -113,6 +124,7 @@ class Drive(pufferlib.PufferEnv):
                         self.terminals[cur:nxt],
                         self.truncations[cur:nxt],
                         seed,
+                        action_type=self._action_type_flag,
                         human_agent_idx=self.human_agent_idx,
                         reward_vehicle_collision=self.reward_vehicle_collision,
                         reward_offroad_collision=self.reward_offroad_collision,
@@ -123,6 +135,7 @@ class Drive(pufferlib.PufferEnv):
                         max_agents=nxt - cur,
                     )
                     env_ids.append(env_id)
+                info[0]['num_scenarios'] = num_envs # Keep track of new number of scenarios after resample
                 self.c_envs = binding.vectorize(*env_ids)
 
                 binding.vec_reset(self.c_envs, seed)
