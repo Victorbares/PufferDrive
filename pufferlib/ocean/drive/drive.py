@@ -4,8 +4,8 @@ import json
 import struct
 import os
 import pufferlib
+from copy import deepcopy
 from pufferlib.ocean.drive import binding
-
 
 class Drive(pufferlib.PufferEnv):
     def __init__(
@@ -20,6 +20,7 @@ class Drive(pufferlib.PufferEnv):
         reward_goal_post_respawn=0.5,
         reward_vehicle_collision_post_respawn=-0.25,
         spawn_immunity_timer=30,
+        dreaming_steps=10,
         resample_frequency=91,
         num_maps=100,
         num_agents=512,
@@ -37,17 +38,24 @@ class Drive(pufferlib.PufferEnv):
         self.reward_vehicle_collision_post_respawn = reward_vehicle_collision_post_respawn
         self.spawn_immunity_timer = spawn_immunity_timer
         self.human_agent_idx = human_agent_idx
+        self.dreaming_steps = dreaming_steps
         self.resample_frequency = resample_frequency
         self.num_obs = 7 + 63 * 7 + 200 * 7
         self.single_observation_space = gymnasium.spaces.Box(low=-1, high=1, shape=(self.num_obs,), dtype=np.float32)
-        if action_type == "discrete":
-            self.single_action_space = gymnasium.spaces.MultiDiscrete([7, 13])
-        elif action_type == "continuous":
-            self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32)
-        else:
-            raise ValueError("action_space must be 'discrete' or 'continuous'")
+        # The policy now outputs 12 parameters for the polynomial trajectory
+        self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(12,), dtype=np.float32)
 
-        self._action_type_flag = 0 if action_type == "discrete" else 1
+        # The C backend still expects 2 continuous low-level actions
+        self._action_type_flag = 0 
+        if action_type == "discrete":
+            self._action_type_flag = 0
+        elif action_type == "continuous":
+            self._action_type_flag = 1
+        elif action_type == "trajectory":
+            self._action_type_flag = 2
+        else:
+            raise ValueError("action_type must be 'discrete', 'continuous' or 'trajectory'")
+    
         # Check if resources directory exists
         binary_path = "resources/drive/binaries/map_000.bin"
         if not os.path.exists(binary_path):
@@ -60,6 +68,7 @@ class Drive(pufferlib.PufferEnv):
         self.map_ids = map_ids
         self.num_envs = num_envs
         super().__init__(buf=buf)
+
         env_ids = []
         for i in range(num_envs):
             cur = agent_offsets[i]
@@ -92,13 +101,29 @@ class Drive(pufferlib.PufferEnv):
 
     def step(self, actions):
         self.terminals[:] = 0
-        self.actions[:] = actions
+        self.rewards[:] = 0
 
-        # Dreaming step
-        # 1. From actions - traj parameters to trajectory waypoints
-        # 2. 
-        # 3. From traj waypoints to low-level control (acceleration, steering) --> First accel, steering for the first way point with MPC
-        binding.vec_step(self.c_envs)
+        if self._action_type_flag == 2:
+            # --- Dreaming Process ---
+    
+            # 1. Dream step --> returns sum of rewards over the dreaming steps for all agents
+            self.actions[:] = actions
+            binding.vec_dream_step(self.c_envs, self.dreaming_steps) # Dreaming steps ahead
+            dreaming_reward = deepcopy(self.rewards)
+        
+            # 4. Perform a single "real" step using the controls for the first waypoint
+            # TODO - first step already done in vec_dream_step --> directly take it instead of recomputing
+            self.actions[:] = actions
+            binding.vec_dream_step(self.c_envs, 1) # Perform a single real step
+            # binding.vec_step(self.c_envs)
+
+            # # Replace reward by the dreaming reward
+            # self.rewards = dreaming_reward
+        else:
+            # Control predictions - continuous or discrete
+            self.actions[:] = actions
+            binding.vec_step(self.c_envs)
+        
         self.tick += 1
         info = []
         if self.tick % self.report_interval == 0:
@@ -140,7 +165,7 @@ class Drive(pufferlib.PufferEnv):
 
                 binding.vec_reset(self.c_envs, seed)
                 self.terminals[:] = 1
-        return (self.observations, self.rewards, self.terminals, self.truncations, info)
+        return (self.observations, dreaming_reward, self.terminals, self.truncations, info) # self.rewards
 
     def render(self):
         binding.vec_render(self.c_envs, 0)

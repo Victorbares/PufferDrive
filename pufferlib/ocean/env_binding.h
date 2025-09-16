@@ -523,6 +523,33 @@ static PyObject* vec_step(PyObject* self, PyObject* arg) {
     Py_RETURN_NONE;
 }
 
+static PyObject* vec_dream_step(PyObject* self, PyObject* args) {
+    int dreaming_steps;
+    // printf("vec_dream_step starting\n");
+
+    if (PyTuple_Size(args) != 2) {
+        PyErr_SetString(PyExc_TypeError, "vec_dream_step requires 2 arguments (handle, dreaming_steps)");
+        return NULL;
+    }
+
+    VecEnv* vec = unpack_vecenv(args);
+    if (!vec)
+        return NULL;
+
+    dreaming_steps = PyLong_AsLong(PyTuple_GetItem(args, 1));
+    // printf("dreaming_steps: %d\n", dreaming_steps);
+
+    for (int i = 0; i < vec->num_envs; i++) {
+        // printf("env: %d\n", i);
+        c_dream_step(vec->envs[i], dreaming_steps);
+    }
+
+    // printf("DREAMING DONE\n");
+
+
+    Py_RETURN_NONE;
+}
+
 static PyObject* vec_render(PyObject* self, PyObject* args) {
     int num_args = PyTuple_Size(args);
     if (num_args != 2) {
@@ -653,6 +680,7 @@ static PyMethodDef methods[] = {
     {"vec_init", (PyCFunction)vec_init, METH_VARARGS | METH_KEYWORDS, "Initialize a vector of environments"},
     {"vec_reset", vec_reset, METH_VARARGS, "Reset the vector of environments"},
     {"vec_step", vec_step, METH_VARARGS, "Step the vector of environments"},
+    {"vec_dream_step", vec_dream_step, METH_VARARGS, "Dream step the vector of environments"},
     {"vec_log", vec_log, METH_VARARGS, "Log the vector of environments"},
     {"vec_render", vec_render, METH_VARARGS, "Render the vector of environments"},
     {"vec_close", vec_close, METH_VARARGS, "Close the vector of environments"},
