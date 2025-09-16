@@ -187,7 +187,6 @@ struct Drive {
     int active_agent_count;
     int* active_agent_indices;
     int action_type;
-    int action_type;
     int human_agent_idx;
     Entity* entities;
     int num_entities;
@@ -259,6 +258,13 @@ static inline float clip_value(float val, float min_val, float max_val);
  * @param waypoints Input array of waypoints of shape (10, 2).
  * @param low_level_actions Output array of shape (10, 2) to be filled with [acceleration, steering] commands.
  */
+
+void clipSpeed(float *speed) {
+    const float maxSpeed = MAX_SPEED;
+    if (*speed > maxSpeed) *speed = maxSpeed;
+    if (*speed < -maxSpeed) *speed = -maxSpeed;
+}
+
 static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], float (*low_level_actions)[2], int dreaming_steps) {
     Entity* agent = &env->entities[agent_idx];
 
@@ -1246,12 +1252,6 @@ void free_allocated(Drive* env){
     c_close(env);
 }
 
-void clipSpeed(float *speed) {
-    const float maxSpeed = MAX_SPEED;
-    if (*speed > maxSpeed) *speed = maxSpeed;
-    if (*speed < -maxSpeed) *speed = -maxSpeed;
-}
-
 float normalize_heading(float heading){
     if(heading > M_PI) heading -= 2*M_PI;
     if(heading < -M_PI) heading += 2*M_PI;
@@ -1652,6 +1652,44 @@ static inline void free_backup_env(void* state_backup) {
     free(backup);
 }
 
+void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoints)[2], int num_waypoints) {
+    Entity* agent = &env->entities[agent_idx];
+    float current_x = agent->x;
+    float current_y = agent->y;
+    float cos_heading = cos(agent->heading); // agent->heading_x
+    float sin_heading = sin(agent->heading); // agent->heading_y
+    // printf("Agent %d Position: (%.3f, %.3f), Heading: (cos: %.3f, sin: %.3f)\n", agent_idx, current_x, current_y, cos_heading, sin_heading);
+
+    // 1. Get scaled control points from raw trajectory parameters
+    float scaled_control_points[12];
+    get_control_points(trajectory_params, scaled_control_points);
+
+    float coeffs_longitudinal[6];
+    float coeffs_lateral[6];
+    for (int i = 0; i < 6; ++i) {
+        coeffs_longitudinal[i] = scaled_control_points[i];
+        coeffs_lateral[i] = scaled_control_points[i + 6];
+    }
+
+    float dt = 0.1f; // Time step for each waypoint, matching Python side
+    float num = (1.0f / dt) - 1.0f;
+    float step = (1.0f - dt) / (num - 1.0f);
+
+    // 2. Generate waypoints using polynomial trajectory generation (with current agents position)
+    for (int i = 0; i < num_waypoints - 1; ++i) {
+        float t = dt + i * step;
+
+        // Polyval of degree 5
+        float local_x = polyval(coeffs_longitudinal, 5, t);
+        float local_y = polyval(coeffs_lateral, 5, t);
+
+        // 3. Convert local waypoints to world frame
+        waypoints[i][0] = current_x + (local_x * cos_heading - local_y * sin_heading);
+        waypoints[i][1] = current_y + (local_x * sin_heading + local_y * cos_heading);
+        // printf("Waypoint %d: (%.3f, %.3f)\n", i, waypoints[i][0], waypoints[i][1]);
+    }
+}
+
 void c_dream_step(Drive* env, int dreaming_steps) {
 
     // Backup env at current timestep
@@ -1715,44 +1753,6 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     if (dreaming_steps > 1) {
         restore_env(env, backup);
         free_backup_env(backup);
-    }
-}
-
-void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoints)[2], int num_waypoints) {
-    Entity* agent = &env->entities[agent_idx];
-    float current_x = agent->x;
-    float current_y = agent->y;
-    float cos_heading = cos(agent->heading); // agent->heading_x
-    float sin_heading = sin(agent->heading); // agent->heading_y
-    // printf("Agent %d Position: (%.3f, %.3f), Heading: (cos: %.3f, sin: %.3f)\n", agent_idx, current_x, current_y, cos_heading, sin_heading);
-
-    // 1. Get scaled control points from raw trajectory parameters
-    float scaled_control_points[12];
-    get_control_points(trajectory_params, scaled_control_points);
-
-    float coeffs_longitudinal[6];
-    float coeffs_lateral[6];
-    for (int i = 0; i < 6; ++i) {
-        coeffs_longitudinal[i] = scaled_control_points[i];
-        coeffs_lateral[i] = scaled_control_points[i + 6];
-    }
-
-    float dt = 0.1f; // Time step for each waypoint, matching Python side
-    float num = (1.0f / dt) - 1.0f;
-    float step = (1.0f - dt) / (num - 1.0f);
-
-    // 2. Generate waypoints using polynomial trajectory generation (with current agents position)
-    for (int i = 0; i < num_waypoints - 1; ++i) {
-        float t = dt + i * step;
-
-        // Polyval of degree 5
-        float local_x = polyval(coeffs_longitudinal, 5, t);
-        float local_y = polyval(coeffs_lateral, 5, t);
-
-        // 3. Convert local waypoints to world frame
-        waypoints[i][0] = current_x + (local_x * cos_heading - local_y * sin_heading);
-        waypoints[i][1] = current_y + (local_x * sin_heading + local_y * cos_heading);
-        // printf("Waypoint %d: (%.3f, %.3f)\n", i, waypoints[i][0], waypoints[i][1]);
     }
 }
 
