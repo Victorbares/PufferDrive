@@ -258,7 +258,7 @@ static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], f
     float sim_vy = agent->vy;
     float agent_length = agent->length;
 
-    for (int i = 0; i < dreaming_steps; ++i) {
+    for (int i = 0; i < dreaming_steps - 1; ++i) {
         // Current simulated state
         float sim_speed = sqrtf(sim_vx * sim_vx + sim_vy * sim_vy);
 
@@ -1411,8 +1411,6 @@ void respawn_agent(Drive* env, int agent_idx){
 void c_step(Drive* env){
     memset(env->rewards, 0, env->active_agent_count * sizeof(float));
     memset(env->terminals, 0, env->active_agent_count * sizeof(unsigned char));
-    // printf("[c_step] starting\n");
-    // printf("Active agent count: %d\n", env->active_agent_count);
 
     env->timestep++;
     if(env->timestep == TRAJECTORY_LENGTH){
@@ -1432,9 +1430,10 @@ void c_step(Drive* env){
         env->logs[i].score = 0.0f;
 	    env->logs[i].episode_length += 1;
         int agent_idx = env->active_agent_indices[i];
-        env->entities[agent_idx].collision_state = 0;
-        move_dynamics(env, i, agent_idx);
-        // move_expert(env, env->actions, agent_idx);
+        if (env->entities[agent_idx].collision_state == 0)
+        {
+            move_dynamics(env, i, agent_idx);
+        }
     }
     for(int i = 0; i < env->active_agent_count; i++){
         int agent_idx = env->active_agent_indices[i];
@@ -1463,7 +1462,6 @@ void c_step(Drive* env){
             if(!env->entities[agent_idx].reached_goal_this_episode){
                 env->entities[agent_idx].collided_before_goal = 1;
             }
-            //printf("agent %d collided\n", agent_idx);
         }
 
         float distance_to_goal = relative_distance_2d(
@@ -1573,6 +1571,10 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     float dreaming_rewards[env->active_agent_count];
     memset(dreaming_rewards, 0, env->active_agent_count * sizeof(float));
 
+    // Collision state temporary storage for the dreaming to not add new rewards and don't move if already collided 
+    int temp_coll_state[env->active_agent_count];
+    memset(temp_coll_state, 0, env->active_agent_count * sizeof(int));
+
     // Step 3: Play low-level actions timestep by timestep
     for (int ts = 0; ts < dreaming_steps; ts++) {
         float (*ctrl_actions_f)[2] = (float(*)[2])env->ctrl_trajectory_actions;
@@ -1583,10 +1585,17 @@ void c_dream_step(Drive* env, int dreaming_steps) {
         // Step the environment with ctrl_actions of timestep ts
         c_step(env);
 
-        // Accumulate rewards
+            // Accumulate rewards
         for (int i = 0; i < env->active_agent_count; i++) {
-            dreaming_rewards[i] += env->rewards[i];
+            int agent_idx = env->active_agent_indices[i];
+            if (temp_coll_state[i] == 0)
+            {
+               dreaming_rewards[i] += env->rewards[i]; 
+            }
+            temp_coll_state[i] = env->entities[agent_idx].collision_state;
         }
+        
+        // If a reset has occurs (timestep reached the end), break early
         if (env->timestep == 0) {
             break;
         }
@@ -1621,10 +1630,12 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
     }
 
     float dt = 0.1f; // Time step for each waypoint, matching Python side
+    float num = (1.0f / dt) - 1.0f;
+    float step = (1.0f - dt) / (num - 1.0f);
 
     // 2. Generate waypoints using polynomial trajectory generation (with current agents position)
     for (int i = 0; i < num_waypoints - 1; ++i) {
-        float t = (i + 1) * dt;
+        float t = dt + i * step;
 
         // Polyval of degree 5
         float local_x = polyval(coeffs_longitudinal, 5, t);

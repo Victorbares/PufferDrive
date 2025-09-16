@@ -20,7 +20,7 @@ class Drive(pufferlib.PufferEnv):
         reward_goal_post_respawn=0.5,
         reward_vehicle_collision_post_respawn=-0.25,
         spawn_immunity_timer=30,
-        dreaming_steps=10,
+        dreaming_steps=5,
         resample_frequency=91,
         num_maps=100,
         num_agents=512,
