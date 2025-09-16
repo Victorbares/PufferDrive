@@ -86,6 +86,8 @@ void free_drivenet(DriveNet* net) {
     free(net->road_linear_output);
     free(net->partner_linear_output_two);
     free(net->road_linear_output_two);
+    free(net->partner_layernorm_output);
+    free(net->road_layernorm_output);
     free(net->ego_encoder);
     free(net->road_encoder);
     free(net->partner_encoder);
@@ -282,13 +284,164 @@ void demo() {
             }
         }
         c_step(&env);
-        c_render(&env);
+       c_render(&env);
     }
 
     close_client(env.client);
     free_allocated(&env);
     free_drivenet(net);
     free(weights);
+}
+
+
+static int run_cmd(const char *cmd) {
+    int rc = system(cmd);
+    if (rc != 0) {
+        fprintf(stderr, "[ffmpeg] command failed (%d): %s\n", rc, cmd);
+    }
+    return rc;
+}
+
+// Make a high-quality GIF from numbered PNG frames like frame_000.png
+static int make_gif_from_frames(const char *pattern, int fps,
+                                const char *palette_path,
+                                const char *out_gif) {
+    char cmd[1024];
+
+    // 1) Generate palette (no quotes needed for simple filter)
+    //    NOTE: if your frames start at 000, you don't need -start_number.
+    snprintf(cmd, sizeof(cmd),
+             "ffmpeg -y -framerate %d -i %s -vf palettegen %s",
+             fps, pattern, palette_path);
+    if (run_cmd(cmd) != 0) return -1;
+
+    // 2) Use palette to encode the GIF
+    snprintf(cmd, sizeof(cmd),
+             "ffmpeg -y -framerate %d -i %s -i %s -lavfi paletteuse -loop 0 %s",
+             fps, pattern, palette_path, out_gif);
+    if (run_cmd(cmd) != 0) return -1;
+
+    return 0;
+}
+
+void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int log_trajectories) {
+    // Use default if no map provided
+    if (map_name == NULL) {
+        map_name = "resources/drive/binaries/map_942.bin";
+    }
+
+    // Make env
+    Drive env = {
+        .dynamics_model = CLASSIC,
+        .reward_vehicle_collision = -0.1f,
+        .reward_offroad_collision = -0.1f,
+	    .map_name = map_name,
+        .spawn_immunity_timer = 50
+    };
+    allocate(&env);
+    // set which vehicle to focus on for obs mode
+    env.human_agent_idx = 0;
+    c_reset(&env);
+
+    /*if (env.client == NULL) {
+        env.client = make_client(&env);
+    }*/
+
+    Client* client = (Client*)calloc(1,sizeof(Client));
+    env.client = client;
+
+    SetConfigFlags(FLAG_WINDOW_HIDDEN);
+    InitWindow(1280, 704, "headless");
+
+    float map_width = env.map_corners[2] - env.map_corners[0];
+    float map_height = env.map_corners[3] - env.map_corners[1];
+    float scale = 8.0f;
+    float img_width = (int)(map_width * scale);
+    float img_height = (int)(map_height * scale);
+    RenderTexture2D target = LoadRenderTexture(img_width, img_height);
+
+    Weights* weights = load_weights("resources/drive/puffer_drive_weights.bin", 595925);
+    DriveNet* net = init_drivenet(weights, env.active_agent_count);
+
+    int frame_count = 91;
+    char filename[256];
+    int rollout = 1;
+    int rollout_trajectory_snapshot = 0;
+    int log_trajectory = log_trajectories;
+
+    if (rollout) {
+        // Generate top-down view frames
+        for(int i = 0; i < frame_count; i++) {
+            float* path_taken = NULL;
+            snprintf(filename, sizeof(filename), "resources/drive/frame_topdown_%03d.png", i);
+            // Always set obs_only=0, lasers=0 for top-down view (full world state)
+            saveTopDownImage(&env, client, filename, target, map_height, 0, 0, rollout_trajectory_snapshot, frame_count, path_taken, log_trajectory, show_grid);
+            int (*actions)[2] = (int(*)[2])env.actions;
+            forward(net, env.observations, env.actions);
+            c_step(&env);
+        }
+
+        // Reset environment to initial state
+        c_reset(&env);
+
+        // Generate agent view frames
+        for(int i = 0; i < frame_count; i++) {
+            float* path_taken = NULL;
+            snprintf(filename, sizeof(filename), "resources/drive/frame_agent_%03d.png", i);
+            saveAgentViewImage(&env, client, filename, target, map_height, obs_only, lasers, show_grid); // obs_only=1, lasers=0, show_grid=0
+            int (*actions)[2] = (int(*)[2])env.actions;
+            forward(net, env.observations, env.actions);
+            c_step(&env);
+        }
+
+        // Generate both GIFs
+        int gif_success_topdown = make_gif_from_frames(
+            "resources/drive/frame_topdown_%03d.png",
+            30, // fps
+            "resources/drive/palette_topdown.png",
+            "resources/drive/output_topdown.gif"
+        );
+
+        int gif_success_agent = make_gif_from_frames(
+            "resources/drive/frame_agent_%03d.png",
+            15, // fps
+            "resources/drive/palette_agent.png",
+            "resources/drive/output_agent.gif"
+        );
+
+        if(gif_success_topdown == 0) {
+            run_cmd("rm -f resources/drive/frame_topdown_*.png resources/drive/palette_topdown.png");
+        }
+        if(gif_success_agent == 0) {
+            run_cmd("rm -f resources/drive/frame_agent_*.png resources/drive/palette_agent.png");
+        }
+    }
+    if (rollout_trajectory_snapshot){
+        float* path_taken = (float*)calloc(2*frame_count, sizeof(float));
+        snprintf(filename, sizeof(filename),"resources/drive/snapshot.png");
+        float goal_frame;
+        for(int i=0; i < frame_count; i++){
+            int agent_idx = env.active_agent_indices[env.human_agent_idx];
+            path_taken[i*2] = env.entities[agent_idx].x;
+            path_taken[i*2+1] = env.entities[agent_idx].y;
+            if(env.entities[agent_idx].reached_goal_this_episode){
+                goal_frame =i;
+                break;
+            }
+            printf("x: %f, y: %f \n", path_taken[i*2], path_taken[i*2+1]);
+            forward(net, env.observations, env.actions);
+            c_step(&env);
+        }
+        c_reset(&env);
+        saveTopDownImage(&env, client, filename, target, map_height, obs_only, lasers, rollout_trajectory_snapshot, goal_frame, path_taken, log_trajectory, 0);
+    }
+    UnloadRenderTexture(target);
+    CloseWindow();
+    free(client);
+    free_allocated(&env);
+    free_drivenet(net);
+    free(weights);
+
 }
 
 void performance_test() {
@@ -328,8 +481,26 @@ void performance_test() {
     free_allocated(&env);
 }
 
-int main() {
-    demo();
-    // performance_test();
+int main(int argc, char* argv[]) {
+    int show_grid = 0;
+    int obs_only = 0;
+    int lasers = 0;
+    int log_trajectories = 1;
+
+    // Parse command line arguments
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--show-grid") == 0) {
+            show_grid = 1;
+        } else if (strcmp(argv[i], "--obs-only") == 0) {
+            obs_only = 1;
+        } else if (strcmp(argv[i], "--lasers") == 0) {
+            lasers = 1;
+        } else if (strcmp(argv[i], "--log_trajectories") == 0) {
+            log_trajectories = 0;
+        }
+    }
+    eval_gif(NULL, show_grid, obs_only, lasers, log_trajectories);
+    //demo();
+    //performance_test();
     return 0;
 }

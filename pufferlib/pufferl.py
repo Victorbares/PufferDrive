@@ -14,6 +14,7 @@ import ast
 import time
 import random
 import shutil
+import subprocess
 import argparse
 import importlib
 import configparser
@@ -118,6 +119,11 @@ class PuffeRL:
         self.ep_lengths = torch.zeros(total_agents, device=device, dtype=torch.int32)
         self.ep_indices = torch.arange(total_agents, device=device, dtype=torch.int32)
         self.free_idx = total_agents
+        self.render = config["render"]
+        self.render_interval = config["render_interval"]
+
+        if self.render:
+            ensure_drive_binary()
 
         # LSTM
         if config["use_rnn"]:
@@ -488,6 +494,105 @@ class PuffeRL:
         if self.epoch % config["checkpoint_interval"] == 0 or done_training:
             self.save_checkpoint()
             self.msg = f"Checkpoint saved at update {self.epoch}"
+
+        if self.render and self.epoch % self.render_interval == 0:
+            run_id = self.logger.run_id
+            model_dir = os.path.join(self.config["data_dir"], f"{self.config['env']}_{run_id}")
+
+            if os.path.exists(model_dir):
+                model_files = glob.glob(os.path.join(model_dir, "model_*.pt"))
+                if model_files:
+                    # Take the latest checkpoint
+                    latest_cpt = max(model_files, key=os.path.getctime)
+                    bin_path = f"{model_dir}.bin"
+
+                    # Export to .bin for rendering with raylib
+                    try:
+                        export_args = {"env_name": self.config["env"], "load_model_path": latest_cpt, **self.config}
+
+                        export(
+                            args=export_args,
+                            env_name=self.config["env"],
+                            vecenv=self.vecenv,
+                            policy=self.uncompiled_policy,
+                            path=bin_path,
+                        )
+
+                    except Exception as e:
+                        print(f"Failed to export model weights: {e}")
+                        return logs
+
+                    # Now call the C rendering function
+                    try:
+                        # Create output directory for GIFs
+                        gif_output_dir = os.path.join(model_dir, "gifs")
+                        os.makedirs(gif_output_dir, exist_ok=True)
+
+                        # Copy the binary weights to the expected location
+                        expected_weights_path = "resources/drive/puffer_drive_weights.bin"
+                        os.makedirs(os.path.dirname(expected_weights_path), exist_ok=True)
+                        shutil.copy2(bin_path, expected_weights_path)
+
+                        cmd = ["xvfb-run", "-s", "-screen 0 1280x720x24", "./drive"]
+
+                        # Add render configurations
+                        if config["show_grid"]:
+                            cmd.append("--show-grid")
+                        if config["obs_only"]:
+                            cmd.append("--obs-only")
+                        if config["show_lasers"]:
+                            cmd.append("--lasers")
+                        if config["show_human_logs"]:
+                            cmd.append("--log-trajectories")
+
+                        # Call C code that runs eval_gif() in subprocess
+                        result = subprocess.run(
+                            cmd,
+                            cwd=os.getcwd(),
+                            capture_output=True,
+                            text=True,
+                            timeout=120,
+                        )
+
+                        if result.returncode == 1:
+                            # Move both generated GIFs to the model directory
+                            gifs = [
+                                ("resources/drive/output_topdown.gif", f"epoch_{self.epoch:06d}_topdown.gif"),
+                                ("resources/drive/output_agent.gif", f"epoch_{self.epoch:06d}_agent.gif"),
+                            ]
+
+                            for source_gif, target_filename in gifs:
+                                if os.path.exists(source_gif):
+                                    target_gif = os.path.join(gif_output_dir, target_filename)
+                                    shutil.move(source_gif, target_gif)
+
+                                    # Log to wandb if available
+                                    if hasattr(self.logger, "wandb") and self.logger.wandb:
+                                        import wandb
+
+                                        view_type = "world_state" if "topdown" in target_filename else "agent_view"
+                                        self.logger.wandb.log(
+                                            {f"render/{view_type}": wandb.Video(target_gif, format="gif")},
+                                            step=self.global_step,
+                                        )
+
+                                else:
+                                    print(f"GIF generation completed but {source_gif} not found")
+
+                            else:
+                                print("GIF generation completed but file not found")
+                        else:
+                            print(f"C rendering failed: {result.stderr}")
+
+                    except subprocess.TimeoutExpired:
+                        print("C rendering timed out")
+                    except Exception as e:
+                        print(f"Failed to generate GIF: {e}")
+
+                    finally:
+                        # Clean up bin weights file
+                        if os.path.exists(expected_weights_path):
+                            os.remove(expected_weights_path)
 
         return logs
 
@@ -1161,7 +1266,7 @@ def profile(args=None, env_name=None, vecenv=None, policy=None):
     prof.export_chrome_trace("trace.json")
 
 
-def export(args=None, env_name=None, vecenv=None, policy=None):
+def export(args=None, env_name=None, vecenv=None, policy=None, path=None):
     args = args or load_config(env_name)
     vecenv = vecenv or load_env(env_name, args)
     policy = policy or load_policy(args, vecenv)
@@ -1171,10 +1276,37 @@ def export(args=None, env_name=None, vecenv=None, policy=None):
         weights.append(param.data.cpu().numpy().flatten())
         print(name, param.shape, param.data.cpu().numpy().ravel()[0])
 
-    path = f"{args['env_name']}_weights.bin"
     weights = np.concatenate(weights)
+    if path is None:
+        path = f"{args['env_name']}_weights.bin"
+
     weights.tofile(path)
+
     print(f"Saved {len(weights)} weights to {path}")
+
+
+def ensure_drive_binary():
+    """Ensure the drive binary exists, build it once if necessary. This
+    is required for rendering with raylib.
+    """
+    if not os.path.exists("./drive"):
+        print("Drive binary not found, building...")
+        try:
+            result = subprocess.run(
+                ["bash", "scripts/build_ocean.sh", "drive", "local"], capture_output=True, text=True, timeout=300
+            )
+
+            if result.returncode == 0:
+                print("Successfully built drive binary")
+            else:
+                print(f"Build failed: {result.stderr}")
+                raise RuntimeError("Failed to build drive binary for rendering")
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("Build timed out")
+        except Exception as e:
+            raise RuntimeError(f"Build error: {e}")
+    else:
+        print("Drive binary found, ready for rendering")
 
 
 def autotune(args=None, env_name=None, vecenv=None, policy=None):

@@ -46,7 +46,7 @@ class Drive(pufferlib.PufferEnv):
         self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(12,), dtype=np.float32)
 
         # The C backend still expects 2 continuous low-level actions
-        self._action_type_flag = 0 
+        self._action_type_flag = 0
         if action_type == "discrete":
             self._action_type_flag = 0
         elif action_type == "continuous":
@@ -55,12 +55,19 @@ class Drive(pufferlib.PufferEnv):
             self._action_type_flag = 2
         else:
             raise ValueError("action_type must be 'discrete', 'continuous' or 'trajectory'")
-    
+
         # Check if resources directory exists
         binary_path = "resources/drive/binaries/map_000.bin"
         if not os.path.exists(binary_path):
             raise FileNotFoundError(
                 f"Required directory {binary_path} not found. Please ensure the Drive maps are downloaded and installed correctly per docs."
+            )
+
+        # Check maps availability
+        available_maps = len([name for name in os.listdir("resources/drive/binaries") if name.endswith(".bin")])
+        if num_maps > available_maps:
+            raise ValueError(
+                f"num_maps ({num_maps}) exceeds available maps in directory ({available_maps}). Please reduce num_maps or add more maps to resources/drive/binaries."
             )
         agent_offsets, map_ids, num_envs = binding.shared(num_agents=num_agents, num_maps=num_maps)
         self.num_agents = num_agents
@@ -105,12 +112,12 @@ class Drive(pufferlib.PufferEnv):
 
         if self._action_type_flag == 2:
             # --- Dreaming Process ---
-    
+
             # 1. Dream step --> returns sum of rewards over the dreaming steps for all agents
             self.actions[:] = actions
             binding.vec_dream_step(self.c_envs, self.dreaming_steps) # Dreaming steps ahead
             dreaming_reward = deepcopy(self.rewards)
-        
+
             # 4. Perform a single "real" step using the controls for the first waypoint
             # TODO - first step already done in vec_dream_step --> directly take it instead of recomputing
             self.actions[:] = actions
@@ -123,7 +130,7 @@ class Drive(pufferlib.PufferEnv):
             # Control predictions - continuous or discrete
             self.actions[:] = actions
             binding.vec_step(self.c_envs)
-        
+
         self.tick += 1
         info = []
         if self.tick % self.report_interval == 0:
@@ -358,7 +365,7 @@ def process_all_maps():
 
     # Path to the training data
     data_dir = Path("data/train")
-    
+
     # Get all JSON files in the training directory
     json_files = sorted(data_dir.glob("*.json"))
 

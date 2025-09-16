@@ -93,4 +93,5 @@ class Drive(nn.Module):
             action = self.actor(flat_hidden)
             action = torch.split(action, self.atn_dim, dim=1)
         value = self.value_fn(flat_hidden)
+
         return action, value
