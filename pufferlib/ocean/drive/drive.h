@@ -180,6 +180,7 @@ struct Drive {
     void* actions; // int32 for discrete, float32 for continuous
     float* rewards;
     float* ctrl_trajectory_actions;
+    int dreaming_steps;
     unsigned char* terminals;
     Log log;
     Log* logs;
@@ -1683,9 +1684,11 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
         float local_x = polyval(coeffs_longitudinal, 5, t);
         float local_y = polyval(coeffs_lateral, 5, t);
 
+        local_x = 1;
+        local_y = 0;
         // 3. Convert local waypoints to world frame
-        waypoints[i][0] = current_x + (local_x * cos_heading - local_y * sin_heading);
-        waypoints[i][1] = current_y + (local_x * sin_heading + local_y * cos_heading);
+        waypoints[i][0] = current_x + (local_x *i* cos_heading - local_y * sin_heading);
+        waypoints[i][1] = current_y + (local_x *i* sin_heading + local_y * cos_heading);
         // printf("Waypoint %d: (%.3f, %.3f)\n", i, waypoints[i][0], waypoints[i][1]);
     }
 }
@@ -1763,6 +1766,7 @@ const Color PUFF_WHITE = (Color){241, 241, 241, 241};
 const Color PUFF_BACKGROUND = (Color){6, 24, 24, 255};
 const Color PUFF_BACKGROUND2 = (Color){18, 72, 72, 255};
 const Color LIGHTGREEN = (Color){152, 255, 152, 255};
+const Color LIGHTYELLOW = (Color){255, 255, 152, 255};
 
 typedef struct Client Client;
 struct Client {
@@ -2457,7 +2461,7 @@ void draw_scene(Drive* env, Client* client, int mode, int obs_only, int lasers, 
 
 }
 
-void saveTopDownImage(Drive* env, Client* client, const char *filename, RenderTexture2D target, int map_height, int obs, int lasers, int trajectories, int frame_count, float* path, int log_trajectories, int show_grid){
+void saveTopDownImage(Drive* env, Client* client, const char *filename, RenderTexture2D target, int map_height, int obs, int lasers, int trajectories, int frame_count, float* path, int log_trajectories, int show_grid, float (*dream_traj)[2] ){
     // Top-down orthographic camera
     Camera3D camera = {0};
     camera.position = (Vector3){ 0.0f, 0.0f, 500.0f };  // above the scene
@@ -2485,7 +2489,19 @@ void saveTopDownImage(Drive* env, Client* client, const char *filename, RenderTe
                     }
                 }
             }
-
+// Draw dreamed trajectories
+            if(env->action_type==2){ //2 = dreaming²
+                for(int i=0; i<env->active_agent_count;i++){
+                    int idx = env->active_agent_indices[i];
+                    for(int j=0; j<env->dreaming_steps;j++){
+                        float x = dream_traj[i*env->dreaming_steps + j][0];
+                        float y = dream_traj[i*env->dreaming_steps + j][1];
+                        // float valid = env->entities[idx].dream_traj_valid[j];
+                        // if(!valid) continue;
+                        DrawSphere((Vector3){x,y,0.5f}, 2.0f, Fade(ORANGE, 0.6f));
+                    }
+                }
+            }
             // Draw current path trajectories SECOND (slightly higher than log trajectories)
             if(trajectories){
                 for(int i=0; i<frame_count; i++){

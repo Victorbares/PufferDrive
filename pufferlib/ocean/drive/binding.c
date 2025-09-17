@@ -138,6 +138,7 @@ static PyObject* my_shared(PyObject* self, PyObject* args, PyObject* kwargs) {
 
 static int my_init(Env* env, PyObject* args, PyObject* kwargs) {
     env->action_type = unpack(kwargs, "action_type");
+    env->dreaming_steps = unpack(kwargs, "dreaming_steps");
     env->human_agent_idx = unpack(kwargs, "human_agent_idx");
     env->reward_vehicle_collision = unpack(kwargs, "reward_vehicle_collision");
     env->reward_offroad_collision = unpack(kwargs, "reward_offroad_collision");

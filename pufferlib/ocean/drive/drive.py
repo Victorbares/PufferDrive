@@ -88,6 +88,7 @@ class Drive(pufferlib.PufferEnv):
                 self.truncations[cur:nxt],
                 seed,
                 action_type=self._action_type_flag,
+                dreaming_steps=self.dreaming_steps,
                 human_agent_idx=human_agent_idx,
                 reward_vehicle_collision=reward_vehicle_collision,
                 reward_offroad_collision=reward_offroad_collision,
@@ -115,13 +116,13 @@ class Drive(pufferlib.PufferEnv):
 
             # 1. Dream step --> returns sum of rewards over the dreaming steps for all agents
             self.actions[:] = actions
-            binding.vec_dream_step(self.c_envs, self.dreaming_steps) # Dreaming steps ahead
+            binding.vec_dream_step(self.c_envs, self.dreaming_steps)  # Dreaming steps ahead
             dreaming_reward = deepcopy(self.rewards)
 
             # 4. Perform a single "real" step using the controls for the first waypoint
             # TODO - first step already done in vec_dream_step --> directly take it instead of recomputing
             self.actions[:] = actions
-            binding.vec_dream_step(self.c_envs, 1) # Perform a single real step
+            binding.vec_dream_step(self.c_envs, 1)  # Perform a single real step
             # binding.vec_step(self.c_envs)
 
             # # Replace reward by the dreaming reward
@@ -157,6 +158,7 @@ class Drive(pufferlib.PufferEnv):
                         self.truncations[cur:nxt],
                         seed,
                         action_type=self._action_type_flag,
+                        dreaming_steps=self.dreaming_steps,
                         human_agent_idx=self.human_agent_idx,
                         reward_vehicle_collision=self.reward_vehicle_collision,
                         reward_offroad_collision=self.reward_offroad_collision,
