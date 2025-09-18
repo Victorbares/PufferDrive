@@ -174,7 +174,10 @@ class Drive(pufferlib.PufferEnv):
 
                 binding.vec_reset(self.c_envs, seed)
                 self.terminals[:] = 1
-        return (self.observations, dreaming_reward, self.terminals, self.truncations, info) # self.rewards
+        if self._action_type_flag != 2:
+            return (self.observations, self.rewards, self.terminals, self.truncations, info) # self.rewards
+        else:
+            return (self.observations, dreaming_reward, self.terminals, self.truncations, info)
 
     def render(self):
         binding.vec_render(self.c_envs, 0)

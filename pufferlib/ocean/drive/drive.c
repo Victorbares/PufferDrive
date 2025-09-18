@@ -328,7 +328,7 @@ void eval_gif(const char *map_name, int show_grid, int obs_only, int lasers, int
 {
     // Use default if no map provided
     if (map_name == NULL)
-    {
+{
         map_name = "resources/drive/binaries/map_000.bin";
     }
 

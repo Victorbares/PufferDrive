@@ -266,7 +266,7 @@ void clipSpeed(float *speed) {
     if (*speed < -maxSpeed) *speed = -maxSpeed;
 }
 
-static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], float (*low_level_actions)[2], int dreaming_steps) {
+static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], float (*low_level_actions)[2], int num_waypoints) {
     Entity* agent = &env->entities[agent_idx];
 
     // Initial state for simulation
@@ -277,7 +277,7 @@ static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], f
     float sim_vy = agent->vy;
     float agent_length = agent->length;
 
-    for (int i = 0; i < dreaming_steps - 1; ++i) {
+    for (int i = 0; i < num_waypoints; ++i) {
         // Current simulated state
         float sim_speed = sqrtf(sim_vx * sim_vx + sim_vy * sim_vy);
 
@@ -1672,23 +1672,22 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
         coeffs_lateral[i] = scaled_control_points[i + 6];
     }
 
+    float duration = (num_waypoints + 1) / 2.0f;
     float dt = 0.1f; // Time step for each waypoint, matching Python side
-    float num = (1.0f / dt) - 1.0f;
-    float step = (1.0f - dt) / (num - 1.0f);
+    float num = (duration / dt) - 1.0f;
+    float step = (duration - dt) / (num - 1.0f);
 
     // 2. Generate waypoints using polynomial trajectory generation (with current agents position)
-    for (int i = 0; i < num_waypoints - 1; ++i) {
+    for (int i = 0; i < num_waypoints; ++i) {
         float t = dt + i * step;
 
         // Polyval of degree 5
         float local_x = polyval(coeffs_longitudinal, 5, t);
         float local_y = polyval(coeffs_lateral, 5, t);
 
-        local_x = 1;
-        local_y = 0;
         // 3. Convert local waypoints to world frame
-        waypoints[i][0] = current_x + (local_x *i* cos_heading - local_y * sin_heading);
-        waypoints[i][1] = current_y + (local_x *i* sin_heading + local_y * cos_heading);
+        waypoints[i][0] = current_x + (local_x * cos_heading - local_y * sin_heading);
+        waypoints[i][1] = current_y + (local_x * sin_heading + local_y * cos_heading);
         // printf("Waypoint %d: (%.3f, %.3f)\n", i, waypoints[i][0], waypoints[i][1]);
     }
 }
@@ -1706,14 +1705,15 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     float (*trajectory_params)[12] = (float(*)[12])env->actions;
 
     // Buffers for waypoints and low-level actions
-    float trajectory_waypoints[env->active_agent_count][dreaming_steps - 1][2];
-    float low_level_actions[env->active_agent_count][dreaming_steps - 1][2];
+    int num_waypoints = dreaming_steps - 1;
+    float trajectory_waypoints[env->active_agent_count][num_waypoints][2];
+    float low_level_actions[env->active_agent_count][num_waypoints][2];
 
     // Step 2: Generate trajectory and control actions for all agents
     for (int i = 0; i < env->active_agent_count; i++) {
         int agent_idx = env->active_agent_indices[i];
-        c_traj(env, agent_idx, trajectory_params[i], trajectory_waypoints[i], dreaming_steps);
-        c_control(env, agent_idx, trajectory_waypoints[i], low_level_actions[i], dreaming_steps);
+        c_traj(env, agent_idx, trajectory_params[i], trajectory_waypoints[i], num_waypoints);
+        c_control(env, agent_idx, trajectory_waypoints[i], low_level_actions[i], num_waypoints);
     }
 
     // Dreaming rewards accumulator
@@ -1725,16 +1725,17 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     memset(temp_coll_state, 0, env->active_agent_count * sizeof(int));
 
     // Step 3: Play low-level actions timestep by timestep
-    for (int ts = 0; ts < dreaming_steps; ts++) {
+    for (int ts = 0; ts < num_waypoints; ts++) {
         float (*ctrl_actions_f)[2] = (float(*)[2])env->ctrl_trajectory_actions;
         for (int i = 0; i < env->active_agent_count; i++) {
             ctrl_actions_f[i][0] = low_level_actions[i][ts][0];  // accel
             ctrl_actions_f[i][1] = low_level_actions[i][ts][1];  // steer
+            // printf("Agent %d, Step %d: Accel %.3f, Steer %.3f\n", i, ts, ctrl_actions_f[i][0], ctrl_actions_f[i][1]);
         }
         // Step the environment with ctrl_actions of timestep ts
         c_step(env);
 
-            // Accumulate rewards
+        // Accumulate rewards
         for (int i = 0; i < env->active_agent_count; i++) {
             int agent_idx = env->active_agent_indices[i];
             if (temp_coll_state[i] == 0)
