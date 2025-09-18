@@ -406,6 +406,7 @@ void eval_gif(const char *map_name, int show_grid, int obs_only, int lasers, int
                     // fill dream_traj for each dream_step
                     for (int d = 0; d < env.dreaming_steps - 1; d++)
                     {
+                        //print waypoint
                         dream_traj[i * env.dreaming_steps + d][0] = trajectory_waypoints[i][d][0];
                         dream_traj[i * env.dreaming_steps + d][1] = trajectory_waypoints[i][d][1];
                     }
@@ -427,16 +428,16 @@ void eval_gif(const char *map_name, int show_grid, int obs_only, int lasers, int
         // Reset environment to initial state
         c_reset(&env);
 
-        // // Generate agent view frames
-        // for (int i = 0; i < frame_count; i++)
-        // {
-        //     float *path_taken = NULL;
-        //     snprintf(filename, sizeof(filename), "resources/drive/frame_agent_%03d.png", i);
-        //     saveAgentViewImage(&env, client, filename, target, map_height, obs_only, lasers, show_grid); // obs_only=1, lasers=0, show_grid=0
-        //     int (*actions)[2] = (int (*)[2])env.actions;
-        //     forward(net, env.observations, env.actions);
-        //     c_step(&env);
-        // }
+        // Generate agent view frames
+        for (int i = 0; i < frame_count; i++)
+        {
+            float *path_taken = NULL;
+            snprintf(filename, sizeof(filename), "resources/drive/frame_agent_%03d.png", i);
+            saveAgentViewImage(&env, client, filename, target, map_height, obs_only, lasers, show_grid); // obs_only=1, lasers=0, show_grid=0
+            int (*actions)[2] = (int (*)[2])env.actions;
+            forward(net, env.observations, env.actions);
+            c_step(&env);
+        }
 
         // Generate both GIFs
         int gif_success_topdown = make_gif_from_frames(

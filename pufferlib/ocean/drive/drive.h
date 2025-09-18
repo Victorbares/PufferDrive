@@ -2493,9 +2493,13 @@ void saveTopDownImage(Drive* env, Client* client, const char *filename, RenderTe
             if(env->action_type==2){ //2 = dreaming²
                 for(int i=0; i<env->active_agent_count;i++){
                     int idx = env->active_agent_indices[i];
-                    for(int j=0; j<env->dreaming_steps;j++){
+                    for(int j=0; j<env->dreaming_steps-1;j++){
+
                         float x = dream_traj[i*env->dreaming_steps + j][0];
                         float y = dream_traj[i*env->dreaming_steps + j][1];
+                        //print x,y
+                        // printf("Waypoint: (%.2f, %.2f)\n", x, y);
+
                         // float valid = env->entities[idx].dream_traj_valid[j];
                         // if(!valid) continue;
                         DrawSphere((Vector3){x,y,0.5f}, 2.0f, Fade(ORANGE, 0.6f));
