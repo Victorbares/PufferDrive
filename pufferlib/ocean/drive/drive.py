@@ -20,7 +20,7 @@ class Drive(pufferlib.PufferEnv):
         reward_goal_post_respawn=0.5,
         reward_vehicle_collision_post_respawn=-0.25,
         spawn_immunity_timer=30,
-        dreaming_steps=5,
+        dreaming_steps=6,
         resample_frequency=91,
         num_maps=100,
         num_agents=512,
@@ -122,7 +122,7 @@ class Drive(pufferlib.PufferEnv):
             # 4. Perform a single "real" step using the controls for the first waypoint
             # TODO - first step already done in vec_dream_step --> directly take it instead of recomputing
             self.actions[:] = actions
-            binding.vec_dream_step(self.c_envs, 1)  # Perform a single real step
+            binding.vec_dream_step(self.c_envs, 2)  # Perform a single real step
             # binding.vec_step(self.c_envs)
 
             # # Replace reward by the dreaming reward

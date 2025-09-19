@@ -221,15 +221,15 @@ struct Drive {
 static const float TRAJECTORY_SCALING_FACTORS[12] = {
     // Longitudinal coefficients c0…c5
     0.0f,  // c0: no offset (start at current pos)
-    10.0f, // c1: velocity term (m/s)
-    1.0f,  // c2: acceleration term (m/s²)
+    100.0f, // c1: velocity term (m/s)
+    5.0f,  // c2: acceleration term (m/s²)
     0.2f,  // c3: jerk term (m/s³)
     0.05f, // c4: snap term (m/s⁴)
     0.01f, // c5: crackle term (m/s⁵)
     // Lateral coefficients c0…c5
     0.0f,  // c0: no lateral offset
-    1.0f,  // c1: lateral velocity (m/s)
-    0.5f,  // c2: lateral acceleration (m/s²)
+    10.0f,  // c1: lateral velocity (m/s)
+    2.0f,  // c2: lateral acceleration (m/s²)
     0.1f,  // c3: lateral jerk (m/s³)
     0.02f, // c4: lateral snap (m/s⁴)
     0.005f // c5: lateral crackle (m/s⁵)
@@ -1694,9 +1694,17 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
 
 void c_dream_step(Drive* env, int dreaming_steps) {
 
+    int num_waypoints;
+    if (dreaming_steps > 1)
+    {
+        num_waypoints = dreaming_steps - 1;
+    }
+    else{
+        num_waypoints = 1;
+    }
     // Backup env at current timestep
     DriveState* backup;
-    if (dreaming_steps > 1)
+    if (num_waypoints > 1)
     {
         backup = (DriveState*)malloc(sizeof(DriveState));
         backup_env(env, backup);
@@ -1705,7 +1713,6 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     float (*trajectory_params)[12] = (float(*)[12])env->actions;
 
     // Buffers for waypoints and low-level actions
-    int num_waypoints = dreaming_steps - 1;
     float trajectory_waypoints[env->active_agent_count][num_waypoints][2];
     float low_level_actions[env->active_agent_count][num_waypoints][2];
 
@@ -1754,7 +1761,7 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     memcpy(env->rewards, dreaming_rewards, env->active_agent_count * sizeof(float));
 
     // Get backup
-    if (dreaming_steps > 1) {
+    if (num_waypoints > 1) {
         restore_env(env, backup);
         free_backup_env(backup);
     }
