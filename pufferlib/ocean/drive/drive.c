@@ -356,7 +356,7 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
         .map_name = map_name,
         .spawn_immunity_timer = 50,
         .action_type = 2,
-        .dreaming_steps = 6};
+        .dreaming_steps = 10};
 
     allocate(&env);
     // set which vehicle to focus on for obs mode
@@ -396,9 +396,9 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
         for (int i = 0; i < frame_count; i++)
         {
             // Only render every frame_skip frames
-            if (i % frame_skip == 0) {
-                float dream_traj[env.active_agent_count * env.dreaming_steps][2];
+            float dream_traj[env.active_agent_count * env.dreaming_steps][2];
             float *path_taken = NULL;
+            if (i % frame_skip == 0) {
                 snprintf(filename, sizeof(filename), "resources/drive/frame_topdown_%03d.png", rendered_frames);
                 saveTopDownImage(&env, client, filename, target, map_height, 0, 0, rollout_trajectory_snapshot, frame_count, path_taken, log_trajectory, show_grid, dream_traj);
 
@@ -452,25 +452,25 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
 
         // Generate agent view frames
         rendered_frames = 0;
-        for (int i = 0; i < frame_count; i++)
-        {
-            // Only render every frame_skip frames
-            if (i % frame_skip == 0) {
-                float *path_taken = NULL;
-                snprintf(filename, sizeof(filename), "resources/drive/frame_agent_%03d.png", rendered_frames);
-                saveAgentViewImage(&env, client, filename, target, map_height, obs_only, lasers, show_grid);
-                rendered_frames++;
-            }
+        // for (int i = 0; i < frame_count; i++)
+        // {
+        //     // Only render every frame_skip frames
+        //     if (i % frame_skip == 0) {
+        //         float *path_taken = NULL;
+        //         snprintf(filename, sizeof(filename), "resources/drive/frame_agent_%03d.png", rendered_frames);
+        //         saveAgentViewImage(&env, client, filename, target, map_height, obs_only, lasers, show_grid);
+        //         rendered_frames++;
+        //     }
 
-            int (*actions)[2] = (int (*)[2])env.actions;
-            forward(net, env.observations, env.actions);
-            c_step(&env);
-        }
+        //     int (*actions)[2] = (int (*)[2])env.actions;
+        //     forward(net, env.observations, env.actions);
+        //     c_step(&env);
+        // }
 
         // Generate both GIFs
         int gif_success_topdown = make_gif_from_frames(
             "resources/drive/frame_topdown_%03d.png",
-            30 / frame_skip, // fps
+            3 / frame_skip, // fps
             "resources/drive/palette_topdown.png",
             "resources/drive/output_topdown.gif");
 
@@ -573,7 +573,7 @@ int main(int argc, char* argv[]) {
         } else if (strcmp(argv[i], "--lasers") == 0) {
             lasers = 1;
         } else if (strcmp(argv[i], "--log-trajectories") == 0) {
-            log_trajectories = 0;
+            log_trajectories = 1;
         } else if (strcmp(argv[i], "--frame-skip") == 0) {
             if (i + 1 < argc) {
                 frame_skip = atoi(argv[i + 1]);

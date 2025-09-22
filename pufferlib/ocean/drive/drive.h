@@ -1798,6 +1798,7 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
         coeffs_longitudinal[i] = scaled_control_points[i];
         coeffs_lateral[i] = scaled_control_points[i + 6];
     }
+    coeffs_longitudinal[1] = fmax(0.0f, coeffs_longitudinal[1]); // Ensure initial velocity is non-negative
 
     float duration = 1.0f; // (num_waypoints + 1) / 2.0f;
     float dt = 0.1f; // Time step for each waypoint, matching Python side
