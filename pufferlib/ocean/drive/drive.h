@@ -2543,7 +2543,7 @@ void saveTopDownImage(Drive* env, Client* client, const char *filename, RenderTe
 
                         // float valid = env->entities[idx].dream_traj_valid[j];
                         // if(!valid) continue;
-                        DrawSphere((Vector3){x,y,0.5f}, 2.0f, Fade(ORANGE, 0.6f));
+                        DrawSphere((Vector3){x,y,0.5f}, 0.3f, Fade(ORANGE, 0.6f));
                     }
                 }
             }

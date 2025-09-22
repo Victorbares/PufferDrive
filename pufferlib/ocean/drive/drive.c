@@ -68,13 +68,13 @@ DriveNet* init_drivenet(Weights* weights, int num_agents) {
     net->gelu = make_gelu(num_agents, 3*input_size);
     net->shared_embedding = make_linear(weights, num_agents, input_size*3, hidden_size);
     net->relu = make_relu(num_agents, hidden_size);
-    net->actor = make_linear(weights, num_agents, hidden_size, 20);
+    net->actor = make_linear(weights, num_agents, hidden_size, 24);
     net->value_fn = make_linear(weights, num_agents, hidden_size, 1);
     net->lstm = make_lstm(weights, num_agents, hidden_size, 256);
     memset(net->lstm->state_h, 0, num_agents*256*sizeof(float));
     memset(net->lstm->state_c, 0, num_agents*256*sizeof(float));
-    int logit_sizes[2] = {7, 13};
-    net->multidiscrete = make_multidiscrete(num_agents, logit_sizes, 2);
+    // int logit_sizes[2] = {7, 13};
+    // net->multidiscrete = make_multidiscrete(num_agents, logit_sizes, 2);
     return net;
 }
 
@@ -111,7 +111,7 @@ void free_drivenet(DriveNet* net) {
     free(net);
 }
 
-void forward(DriveNet* net, float* observations, int* actions) {
+void forward(DriveNet* net, float* observations, float* actions) {
     // Clear previous observations
     memset(net->obs_self, 0, net->num_agents * 7 * sizeof(float));
     memset(net->obs_partner, 0, net->num_agents * 63 * 7 * sizeof(float));
@@ -220,11 +220,21 @@ void forward(DriveNet* net, float* observations, int* actions) {
     linear(net->shared_embedding, net->gelu->output);
     relu(net->relu, net->shared_embedding->output);
     lstm(net->lstm, net->relu->output);
-    linear(net->actor, net->lstm->state_h);
+    linear(net->actor, net->lstm->state_h); // actor->output is [num_agents, 24]
     linear(net->value_fn, net->lstm->state_h);
-
-    // Get action by taking argmax of actor output
-    softmax_multidiscrete(net->multidiscrete, net->actor->output, actions);
+    // Split actor output into loc and scale, apply softplus to scale
+    for (int b = 0; b < net->num_agents; b++) {
+        float* params = &net->actor->output[b * 24];
+        float* loc = params;
+        float* scale = params + 12;
+        for (int i = 0; i < 12; i++) {
+            float std = logf(1.0f + expf(scale[i])) + 1e-4f; // softplus
+            // For deterministic: actions[b*12 + i] = loc[i];
+            // For stochastic: sample from Normal(loc[i], std)
+            actions[b*12 + i] = loc[i]; // Use mean for now
+            // Optionally, you could also output std if needed
+        }
+    }
 }
 void demo() {
 
@@ -341,7 +351,7 @@ void eval_gif(const char *map_name, int show_grid, int obs_only, int lasers, int
         .map_name = map_name,
         .spawn_immunity_timer = 50,
         .action_type = 2,
-        .dreaming_steps = 10};
+        .dreaming_steps = 6};
 
     allocate(&env);
     // set which vehicle to focus on for obs mode
@@ -385,8 +395,10 @@ void eval_gif(const char *map_name, int show_grid, int obs_only, int lasers, int
             // Always set obs_only=0, lasers=0 for top-down view (full world state)
             saveTopDownImage(&env, client, filename, target, map_height, 0, 0, rollout_trajectory_snapshot, frame_count, path_taken, log_trajectory, show_grid, dream_traj);
 
-            int (*actions)[2] = (int (*)[2])env.actions;
+            float (*actions)[12] = (float (*)[12])env.actions;
             forward(net, env.observations, env.actions);
+            int num_waypoints = env.dreaming_steps - 1;
+
             if (env.action_type == 2)
             {
                 // FIXME create a function that handle traj
@@ -394,17 +406,17 @@ void eval_gif(const char *map_name, int show_grid, int obs_only, int lasers, int
                 float (*trajectory_params)[12] = (float (*)[12])env.actions;
 
                 // Buffers for waypoints and low-level actions
-                float trajectory_waypoints[env.active_agent_count][env.dreaming_steps - 1][2];
-                float low_level_actions[env.active_agent_count][env.dreaming_steps - 1][2];
+                float trajectory_waypoints[env.active_agent_count][num_waypoints][2];
+                float low_level_actions[env.active_agent_count][num_waypoints][2];
 
                 // Step 2: Generate trajectory and control actions for all agents
                 for (int i = 0; i < env.active_agent_count; i++)
                 {
                     int agent_idx = env.active_agent_indices[i];
-                    c_traj(&env, agent_idx, trajectory_params[i], trajectory_waypoints[i], env.dreaming_steps);
-                    c_control(&env, agent_idx, trajectory_waypoints[i], low_level_actions[i], env.dreaming_steps);
+                    c_traj(&env, agent_idx, trajectory_params[i], trajectory_waypoints[i], num_waypoints);
+                    c_control(&env, agent_idx, trajectory_waypoints[i], low_level_actions[i], num_waypoints);
                     // fill dream_traj for each dream_step
-                    for (int d = 0; d < env.dreaming_steps - 1; d++)
+                    for (int d = 0; d < num_waypoints; d++)
                     {
                         //print waypoint
                         dream_traj[i * env.dreaming_steps + d][0] = trajectory_waypoints[i][d][0];
@@ -412,7 +424,7 @@ void eval_gif(const char *map_name, int show_grid, int obs_only, int lasers, int
                     }
                 }
                 // Save waypoints to draw the
-                for (int ts = 0; ts < env.dreaming_steps-1; ts++)
+                for (int ts = 0; ts < num_waypoints; ts++)
                 {
                     float (*ctrl_actions_f)[2] = (float (*)[2])env.ctrl_trajectory_actions;
                     for (int i = 0; i < env.active_agent_count; i++)
