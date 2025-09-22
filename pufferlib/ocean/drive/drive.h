@@ -180,6 +180,7 @@ struct Drive {
     void* actions; // int32 for discrete, float32 for continuous
     float* rewards;
     float* ctrl_trajectory_actions;
+    float* previous_distance_to_goal;
     int dreaming_steps;
     unsigned char* terminals;
     Log log;
@@ -221,24 +222,24 @@ struct Drive {
 static const float TRAJECTORY_SCALING_FACTORS[12] = {
     // Longitudinal coefficients c0…c5
     0.0f,  // c0: no offset (start at current pos)
-    100.0f, // c1: velocity term (m/s)
-    5.0f,  // c2: acceleration term (m/s²)
-    0.2f,  // c3: jerk term (m/s³)
-    0.05f, // c4: snap term (m/s⁴)
-    0.01f, // c5: crackle term (m/s⁵)
-    // Lateral coefficients c0…c5
+    10.0f, // c1: velocity term (m/s)
+    3.0f,  // c2: acceleration term (m/s²)
+    0.1f,  // c3: jerk term (m/s³)
+    0.01f, // c4: snap term (m/s⁴)
+    0.001f, // c5: crackle term (m/s⁵)
+    // Lateral coefficients c0…c5s
     0.0f,  // c0: no lateral offset
-    10.0f,  // c1: lateral velocity (m/s)
-    2.0f,  // c2: lateral acceleration (m/s²)
-    0.1f,  // c3: lateral jerk (m/s³)
-    0.02f, // c4: lateral snap (m/s⁴)
-    0.005f // c5: lateral crackle (m/s⁵)
+    3.0f,  // c1: lateral velocity (m/s)
+    1.0f,  // c2: lateral acceleration (m/s²)
+    0.05f,  // c3: lateral jerk (m/s³)
+    0.01f, // c4: lateral snap (m/s⁴)
+    0.002f // c5: lateral crackle (m/s⁵)
 };
 
 // --- MPC Controller ---
 // Proportional gains for the controller
-#define KP_SPEED 2.0f
-#define KP_STEERING 3.0f
+#define KP_SPEED 1.0f
+#define KP_STEERING 0.8f
 
 // Time delta between waypoints
 #define TIME_DELTA 0.1f
@@ -306,7 +307,8 @@ static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], f
         float desired_steering = KP_STEERING * yaw_error;
 
         // Apply speed-dependent steering reduction
-        float speed_factor = fmaxf(0.1f, 1.0f - sim_speed / 20.0f);
+        // float speed_factor = fmaxf(0.1f, 1.0f - sim_speed / 20.0f);
+        float speed_factor = fmaxf(0.5f, 1.0f - sim_speed / 40.0f);
         desired_steering = desired_steering * speed_factor;
 
         // Clip the values to the vehicle's physical limits
@@ -1204,6 +1206,7 @@ void init(Drive* env){
     set_start_position(env);
     env->logs = (Log*)calloc(env->active_agent_count, sizeof(Log));
     env->ctrl_trajectory_actions = (float*)calloc(env->active_agent_count*2, sizeof(float));
+    env->previous_distance_to_goal = (float*)calloc(env->active_agent_count, sizeof(float));
 
 }
 
@@ -1216,6 +1219,7 @@ void c_close(Drive* env){
     free(env->logs);
     free(env->map_corners);
     free(env->ctrl_trajectory_actions);
+    free(env->previous_distance_to_goal);
     free(env->grid_cells);
     free(env->neighbor_offsets);
     free(env->neighbor_cache_entities);
@@ -1240,6 +1244,7 @@ void allocate(Drive* env){
         exit(1);
     }
     env->ctrl_trajectory_actions = (float*)calloc(env->active_agent_count*2, sizeof(float));
+    env->previous_distance_to_goal = (float*)calloc(env->active_agent_count, sizeof(float));
     env->rewards = (float*)calloc(env->active_agent_count, sizeof(float));
     env->terminals= (unsigned char*)calloc(env->active_agent_count, sizeof(unsigned char));
     // printf("allocated\n");
@@ -1565,7 +1570,8 @@ void c_step(Drive* env){
                 env->entities[agent_idx].collided_before_goal = 1;
             }
         }
-
+        
+        // Goal reached reward
         float distance_to_goal = relative_distance_2d(
                 env->entities[agent_idx].x,
                 env->entities[agent_idx].y,
@@ -1576,6 +1582,7 @@ void c_step(Drive* env){
                 env->rewards[i] += env->reward_goal_post_respawn;
                 env->logs[i].episode_return += env->reward_goal_post_respawn;
             } else {
+                // Reached goal reward
                 env->rewards[i] += 1.0f;
                 env->logs[i].episode_return += 1.0f;
                 //env->terminals[i] = 1;
@@ -1583,6 +1590,16 @@ void c_step(Drive* env){
             env->entities[agent_idx].reached_goal_this_episode = 1;
             env->entities[agent_idx].metrics_array[REACHED_GOAL_IDX] = 1.0f;
 	    }
+        // Progression reward
+        // Reward for having advanced since previous step
+        float progression_reward = 0.0f;
+        if ((env->previous_distance_to_goal[i] - distance_to_goal) > 0.0f)
+        {
+            progression_reward = 0.2f;
+        }
+        env->rewards[i] += progression_reward;
+        env->logs[i].episode_return += progression_reward;
+        env->previous_distance_to_goal[i] = distance_to_goal; // fill previous distance to goal
 
         int lane_aligned = env->entities[agent_idx].metrics_array[LANE_ALIGNED_IDX];
         if(lane_aligned){
@@ -1672,7 +1689,7 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
         coeffs_lateral[i] = scaled_control_points[i + 6];
     }
 
-    float duration = (num_waypoints + 1) / 2.0f;
+    float duration = 1.0f; // (num_waypoints + 1) / 2.0f;
     float dt = 0.1f; // Time step for each waypoint, matching Python side
     float num = (duration / dt) - 1.0f;
     float step = (duration - dt) / (num - 1.0f);
@@ -1692,6 +1709,24 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
     }
 }
 
+void print_trajectory_lengths(int agent_count, int num_waypoints, float trajectory_waypoints[agent_count][num_waypoints][2]) {
+    for (int agent = 0; agent < agent_count; agent++) {
+        double length = 0.0;
+        for (int i = 1; i < num_waypoints; i++) {
+            float x1 = trajectory_waypoints[agent][i-1][0];
+            float y1 = trajectory_waypoints[agent][i-1][1];
+            float x2 = trajectory_waypoints[agent][i][0];
+            float y2 = trajectory_waypoints[agent][i][1];
+
+            double dx = x2 - x1;
+            double dy = y2 - y1;
+            length += sqrt(dx*dx + dy*dy);
+        }
+        printf("Agent %d trajectory length: %f\n", agent, length);
+    }
+}
+
+
 void c_dream_step(Drive* env, int dreaming_steps) {
 
     int num_waypoints;
@@ -1709,6 +1744,7 @@ void c_dream_step(Drive* env, int dreaming_steps) {
         backup = (DriveState*)malloc(sizeof(DriveState));
         backup_env(env, backup);
     }
+
     // Step 1: trajectory_params points to your high-level predicted actions
     float (*trajectory_params)[12] = (float(*)[12])env->actions;
 
@@ -1722,14 +1758,15 @@ void c_dream_step(Drive* env, int dreaming_steps) {
         c_traj(env, agent_idx, trajectory_params[i], trajectory_waypoints[i], num_waypoints);
         c_control(env, agent_idx, trajectory_waypoints[i], low_level_actions[i], num_waypoints);
     }
+    // if (num_waypoints > 1)
+    // {
+    //     print_trajectory_lengths(env->active_agent_count, num_waypoints, trajectory_waypoints);
+    // }
 
     // Dreaming rewards accumulator
     float dreaming_rewards[env->active_agent_count];
     memset(dreaming_rewards, 0, env->active_agent_count * sizeof(float));
 
-    // Collision state temporary storage for the dreaming to not add new rewards and don't move if already collided
-    int temp_coll_state[env->active_agent_count];
-    memset(temp_coll_state, 0, env->active_agent_count * sizeof(int));
 
     // Step 3: Play low-level actions timestep by timestep
     for (int ts = 0; ts < num_waypoints; ts++) {
@@ -1737,7 +1774,6 @@ void c_dream_step(Drive* env, int dreaming_steps) {
         for (int i = 0; i < env->active_agent_count; i++) {
             ctrl_actions_f[i][0] = low_level_actions[i][ts][0];  // accel
             ctrl_actions_f[i][1] = low_level_actions[i][ts][1];  // steer
-            // printf("Agent %d, Step %d: Accel %.3f, Steer %.3f\n", i, ts, ctrl_actions_f[i][0], ctrl_actions_f[i][1]);
         }
         // Step the environment with ctrl_actions of timestep ts
         c_step(env);
@@ -1745,11 +1781,8 @@ void c_dream_step(Drive* env, int dreaming_steps) {
         // Accumulate rewards
         for (int i = 0; i < env->active_agent_count; i++) {
             int agent_idx = env->active_agent_indices[i];
-            if (temp_coll_state[i] == 0)
-            {
-               dreaming_rewards[i] += env->rewards[i];
-            }
-            temp_coll_state[i] = env->entities[agent_idx].collision_state;
+            // if collision - keep reward -1 but still do not move in the dynamics
+            dreaming_rewards[i] += env->rewards[i];
         }
 
         // If a reset has occurs (timestep reached the end), break early
