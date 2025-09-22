@@ -255,17 +255,17 @@ static const float TRAJECTORY_SCALING_FACTORS[12] = {
     // Longitudinal coefficients c0…c5
     0.0f,  // c0: no offset (start at current pos)
     10.0f, // c1: velocity term (m/s)
-    3.0f,  // c2: acceleration term (m/s²)
-    0.1f,  // c3: jerk term (m/s³)
-    0.01f, // c4: snap term (m/s⁴)
-    0.001f, // c5: crackle term (m/s⁵)
+    1.0f,  // c2: acceleration term (m/s²)
+    0.0f,  // c3: jerk term (m/s³)
+    0.0f, // c4: snap term (m/s⁴)
+    0.0f, // c5: crackle term (m/s⁵)
     // Lateral coefficients c0…c5s
     0.0f,  // c0: no lateral offset
-    3.0f,  // c1: lateral velocity (m/s)
-    1.0f,  // c2: lateral acceleration (m/s²)
-    0.05f,  // c3: lateral jerk (m/s³)
-    0.01f, // c4: lateral snap (m/s⁴)
-    0.002f // c5: lateral crackle (m/s⁵)
+    0.0f,  // c1: lateral velocity (m/s)
+    0.0f,  // c2: lateral acceleration (m/s²)
+    0.0f,  // c3: lateral jerk (m/s³)
+    0.0f, // c4: lateral snap (m/s⁴)
+    0.0f // c5: lateral crackle (m/s⁵)
 };
 
 // --- MPC Controller ---
@@ -393,7 +393,7 @@ static inline void get_control_points(const float* action, float* scaled_control
 // This matches numpy.polyval's behavior.
 static inline float polyval(const float* coeffs, int degree, float t) {
     float result = 0.0f;
-    for (int i = 0; i <= degree; ++i) {
+    for (int i = 5; i >= 0; --i) {
         result = result * t + coeffs[i];
     }
     return result;
@@ -1671,7 +1671,7 @@ void c_step(Drive* env){
                 env->entities[agent_idx].collided_before_goal = 1;
             }
         }
-        
+
         // Goal reached reward
         float distance_to_goal = relative_distance_2d(
                 env->entities[agent_idx].x,
