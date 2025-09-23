@@ -1,11 +1,14 @@
-import numpy as np
-import gymnasium
 import json
-import struct
 import os
-import pufferlib
+import struct
 from copy import deepcopy
+
+import gymnasium
+import numpy as np
+
+import pufferlib
 from pufferlib.ocean.drive import binding
+
 
 class Drive(pufferlib.PufferEnv):
     def __init__(
@@ -172,15 +175,16 @@ class Drive(pufferlib.PufferEnv):
                         spawn_immunity_timer=self.spawn_immunity_timer,
                         map_id=map_ids[i],
                         max_agents=nxt - cur,
+                        ini_file="pufferlib/config/ocean/drive.ini",
                     )
                     env_ids.append(env_id)
-                info[0]['num_scenarios'] = num_envs # Keep track of new number of scenarios after resample
+                info[0]["num_scenarios"] = num_envs  # Keep track of new number of scenarios after resample
                 self.c_envs = binding.vectorize(*env_ids)
 
                 binding.vec_reset(self.c_envs, seed)
                 self.terminals[:] = 1
         if self._action_type_flag != 2:
-            return (self.observations, self.rewards, self.terminals, self.truncations, info) # self.rewards
+            return (self.observations, self.rewards, self.terminals, self.truncations, info)  # self.rewards
         else:
             return (self.observations, dreaming_reward, self.terminals, self.truncations, info)
 

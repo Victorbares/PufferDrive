@@ -261,10 +261,10 @@ static const float TRAJECTORY_SCALING_FACTORS[12] = {
     0.0f, // c5: crackle term (m/s⁵)
     // Lateral coefficients c0…c5s
     0.0f,  // c0: no lateral offset
-    0.0f,  // c1: lateral velocity (m/s)
-    0.0f,  // c2: lateral acceleration (m/s²)
+    1.0f,  // c1: lateral velocity (m/s)
+    0.5f,  // c2: lateral acceleration (m/s²)
     0.0f,  // c3: lateral jerk (m/s³)
-    0.0f, // c4: lateral snap (m/s⁴)
+    0.0f, // c4: lateral10  snap (m/s⁴)
     0.0f // c5: lateral crackle (m/s⁵)
 };
 
@@ -1799,6 +1799,11 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
         coeffs_lateral[i] = scaled_control_points[i + 6];
     }
     coeffs_longitudinal[1] = fmax(0.0f, coeffs_longitudinal[1]); // Ensure initial velocity is non-negative
+    coeffs_longitudinal[1] = 10;
+
+    coeffs_lateral[1] = 1;
+    coeffs_lateral[2] = 0.2;
+
 
     float duration = 1.0f; // (num_waypoints + 1) / 2.0f;
     float dt = 0.1f; // Time step for each waypoint, matching Python side
@@ -1812,6 +1817,7 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
         // Polyval of degree 5
         float local_x = polyval(coeffs_longitudinal, 5, t);
         float local_y = polyval(coeffs_lateral, 5, t);
+
 
         // 3. Convert local waypoints to world frame
         waypoints[i][0] = current_x + (local_x * cos_heading - local_y * sin_heading);

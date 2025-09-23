@@ -470,7 +470,7 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
         // Generate both GIFs
         int gif_success_topdown = make_gif_from_frames(
             "resources/drive/frame_topdown_%03d.png",
-            3 / frame_skip, // fps
+            5 / frame_skip, // fps
             "resources/drive/palette_topdown.png",
             "resources/drive/output_topdown.gif");
 
