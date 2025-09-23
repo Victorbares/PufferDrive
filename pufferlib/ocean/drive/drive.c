@@ -434,7 +434,7 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
                     }
                 }
                 // Save waypoints to draw the
-                for (int ts = 0; ts < num_waypoints; ts++)
+                for (int ts = 0; ts < 1; ts++)
                 {
                     float (*ctrl_actions_f)[2] = (float (*)[2])env.ctrl_trajectory_actions;
                     for (int i = 0; i < env.active_agent_count; i++)
