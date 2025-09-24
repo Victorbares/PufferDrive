@@ -255,14 +255,14 @@ static const float TRAJECTORY_SCALING_FACTORS[12] = {
     // Longitudinal coefficients c0…c5
     0.0f,  // c0: no offset (start at current pos)
     30.0f, // c1: velocity term (m/s)
-    3.0f,  // c2: acceleration term (m/s²)
+    5.0f,  // c2: acceleration term (m/s²)
     0.0f,  // c3: jerk term (m/s³)
     0.0f, // c4: snap term (m/s⁴)
     0.0f, // c5: crackle term (m/s⁵)
     // Lateral coefficients c0…c5s
     0.0f,  // c0: no lateral offset
-    3.0f,  // c1: lateral velocity (m/s)
-    1.5f,  // c2: lateral acceleration (m/s²)
+    5.0f,  // c1: lateral velocity (m/s)
+    1.0f,  // c2: lateral acceleration (m/s²)
     0.0f,  // c3: lateral jerk (m/s³)
     0.0f, // c4: lateral10  snap (m/s⁴)
     0.0f // c5: lateral crackle (m/s⁵)
@@ -1786,6 +1786,8 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
     float current_y = agent->y;
     float cos_heading = cos(agent->heading); // agent->heading_x
     float sin_heading = sin(agent->heading); // agent->heading_y
+    float sim_vx = agent->vx;
+    float sim_vy = agent->vy;
     // printf("Agent %d Position: (%.3f, %.3f), Heading: (cos: %.3f, sin: %.3f)\n", agent_idx, current_x, current_y, cos_heading, sin_heading);
 
     // 1. Get scaled control points from raw trajectory parameters
@@ -1798,8 +1800,9 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
         coeffs_longitudinal[i] = scaled_control_points[i];
         coeffs_lateral[i] = scaled_control_points[i + 6];
     }
-    coeffs_longitudinal[1] = fmax(0.0f, coeffs_longitudinal[1]); // Ensure initial velocity is non-negative
-
+    float speed = sqrtf(sim_vx * sim_vx + sim_vy * sim_vy);
+    coeffs_longitudinal[1] = speed; //fmax(0.0f, coeffs_longitudinal[1]); // Ensure initial velocity is non-negative
+    coeffs_lateral[1] = fmin(coeffs_lateral[1], 0.1 * coeffs_longitudinal[1]);
 
     float duration = 1.0f; // (num_waypoints + 1) / 2.0f;
     float dt = 0.1f; // Time step for each waypoint, matching Python side
@@ -2639,7 +2642,7 @@ void saveTopDownImage(Drive* env, Client* client, const char *filename, RenderTe
                     }
                 }
             }
-// Draw dreamed trajectories
+            // Draw dreamed trajectories
             if(env->action_type==2){ //2 = dreaming²
                 for(int i=0; i<env->active_agent_count;i++){
                     int idx = env->active_agent_indices[i];
