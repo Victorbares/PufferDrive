@@ -254,15 +254,15 @@ struct Drive {
 static const float TRAJECTORY_SCALING_FACTORS[12] = {
     // Longitudinal coefficients c0…c5
     0.0f,  // c0: no offset (start at current pos)
-    10.0f, // c1: velocity term (m/s)
-    1.0f,  // c2: acceleration term (m/s²)
+    30.0f, // c1: velocity term (m/s)
+    3.0f,  // c2: acceleration term (m/s²)
     0.0f,  // c3: jerk term (m/s³)
     0.0f, // c4: snap term (m/s⁴)
     0.0f, // c5: crackle term (m/s⁵)
     // Lateral coefficients c0…c5s
     0.0f,  // c0: no lateral offset
-    1.0f,  // c1: lateral velocity (m/s)
-    0.5f,  // c2: lateral acceleration (m/s²)
+    3.0f,  // c1: lateral velocity (m/s)
+    1.5f,  // c2: lateral acceleration (m/s²)
     0.0f,  // c3: lateral jerk (m/s³)
     0.0f, // c4: lateral10  snap (m/s⁴)
     0.0f // c5: lateral crackle (m/s⁵)
@@ -270,8 +270,8 @@ static const float TRAJECTORY_SCALING_FACTORS[12] = {
 
 // --- MPC Controller ---
 // Proportional gains for the controller
-#define KP_SPEED 1.0f
-#define KP_STEERING 0.8f
+#define KP_SPEED 2.0f
+#define KP_STEERING 3.0f
 
 // Time delta between waypoints
 #define TIME_DELTA 0.1f
@@ -339,8 +339,8 @@ static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], f
         float desired_steering = KP_STEERING * yaw_error;
 
         // Apply speed-dependent steering reduction
-        // float speed_factor = fmaxf(0.1f, 1.0f - sim_speed / 20.0f);
-        float speed_factor = fmaxf(0.5f, 1.0f - sim_speed / 40.0f);
+        float speed_factor = fmaxf(0.1f, 1.0f - sim_speed / 20.0f);
+        // float speed_factor = fmaxf(0.5f, 1.0f - sim_speed / 40.0f);
         desired_steering = desired_steering * speed_factor;
 
         // Clip the values to the vehicle's physical limits
@@ -1799,10 +1799,6 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
         coeffs_lateral[i] = scaled_control_points[i + 6];
     }
     coeffs_longitudinal[1] = fmax(0.0f, coeffs_longitudinal[1]); // Ensure initial velocity is non-negative
-    coeffs_longitudinal[1] = 10;
-
-    coeffs_lateral[1] = 1;
-    coeffs_lateral[2] = 0.2;
 
 
     float duration = 1.0f; // (num_waypoints + 1) / 2.0f;
@@ -1875,10 +1871,6 @@ void c_dream_step(Drive* env, int dreaming_steps) {
         c_traj(env, agent_idx, trajectory_params[i], trajectory_waypoints[i], num_waypoints);
         c_control(env, agent_idx, trajectory_waypoints[i], low_level_actions[i], num_waypoints);
     }
-    // if (num_waypoints > 1)
-    // {
-    //     print_trajectory_lengths(env->active_agent_count, num_waypoints, trajectory_waypoints);
-    // }
 
     // Dreaming rewards accumulator
     float dreaming_rewards[env->active_agent_count];
