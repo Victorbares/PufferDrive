@@ -251,21 +251,22 @@ struct Drive {
     char* ini_file;
 };
 
+
 static const float TRAJECTORY_SCALING_FACTORS[12] = {
     // Longitudinal coefficients c0…c5
     0.0f,  // c0: no offset (start at current pos)
-    30.0f, // c1: velocity term (m/s)
-    5.0f,  // c2: acceleration term (m/s²)
-    0.0f,  // c3: jerk term (m/s³)
-    0.0f, // c4: snap term (m/s⁴)
-    0.0f, // c5: crackle term (m/s⁵)
+    30.0f, // c1: velocity term (m/s) 10
+    5.0f,  // c2: acceleration term (m/s²) 1.0
+    0.0f,  // c3: jerk term (m/s³) 0.2
+    0.0f, // c4: snap term (m/s⁴) 0.05
+    0.0f, // c5: crackle term (m/s⁵) 0.01
     // Lateral coefficients c0…c5s
     0.0f,  // c0: no lateral offset
-    5.0f,  // c1: lateral velocity (m/s)
-    1.0f,  // c2: lateral acceleration (m/s²)
-    0.0f,  // c3: lateral jerk (m/s³)
-    0.0f, // c4: lateral10  snap (m/s⁴)
-    0.0f // c5: lateral crackle (m/s⁵)
+    5.0f,  // c1: lateral velocity (m/s) 1.0
+    1.0f,  // c2: lateral acceleration (m/s²) 0.5
+    0.0f,  // c3: lateral jerk (m/s³) 0.1
+    0.0f, // c4: lateral10  snap (m/s⁴) 0.02
+    0.0f // c5: lateral crackle (m/s⁵) 0.005
 };
 
 // --- MPC Controller ---
@@ -1696,7 +1697,7 @@ void c_step(Drive* env){
         float progression_reward = 0.0f;
         if ((env->previous_distance_to_goal[i] - distance_to_goal) > 0.0f)
         {
-            progression_reward = 0.2f;
+            progression_reward = 0.02f;
         }
         env->rewards[i] += progression_reward;
         env->logs[i].episode_return += progression_reward;
@@ -1804,6 +1805,8 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
     coeffs_longitudinal[1] = speed; //fmax(0.0f, coeffs_longitudinal[1]); // Ensure initial velocity is non-negative
     coeffs_lateral[1] = fmin(coeffs_lateral[1], 0.1 * coeffs_longitudinal[1]);
 
+
+    // float duration = (num_waypoints + 1) *0.1f;
     float duration = 1.0f; // (num_waypoints + 1) / 2.0f;
     float dt = 0.1f; // Time step for each waypoint, matching Python side
     float num = (duration / dt) - 1.0f;
