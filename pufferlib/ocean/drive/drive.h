@@ -261,11 +261,11 @@ static const float TRAJECTORY_SCALING_FACTORS[12] = {
     0.0f, // c4: snap term (m/s⁴) 0.05
     0.0f, // c5: crackle term (m/s⁵) 0.01
     // Lateral coefficients c0…c5s
-    0.0f,  // c0: no lateral offset
+    0.25f,  // c0: no lateral offset
     5.0f,  // c1: lateral velocity (m/s) 1.0
-    1.0f,  // c2: lateral acceleration (m/s²) 0.5
-    0.0f,  // c3: lateral jerk (m/s³) 0.1
-    0.0f, // c4: lateral10  snap (m/s⁴) 0.02
+    2.0f,  // c2: lateral acceleration (m/s²) 0.5
+    0.1f,  // c3: lateral jerk (m/s³) 0.1
+    0.0f, // c4: lateral snap (m/s⁴) 0.02
     0.0f // c5: lateral crackle (m/s⁵) 0.005
 };
 
@@ -1882,7 +1882,7 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     float dreaming_rewards[env->active_agent_count];
     memset(dreaming_rewards, 0, env->active_agent_count * sizeof(float));
 
-
+    int env_timestep_begining_of_dreaming = env->timestep;
     // Step 3: Play low-level actions timestep by timestep
     for (int ts = 0; ts < num_waypoints; ts++) {
         float (*ctrl_actions_f)[2] = (float(*)[2])env->ctrl_trajectory_actions;
@@ -1897,9 +1897,15 @@ void c_dream_step(Drive* env, int dreaming_steps) {
         for (int i = 0; i < env->active_agent_count; i++) {
             int agent_idx = env->active_agent_indices[i];
             // if collision - keep reward -1 but still do not move in the dynamics
+
+            // Don't give reward when agent respawn during dreaming
+            if (env->entities[agent_idx].respawn_timestep > env_timestep_begining_of_dreaming
+    && env->timestep > env->entities[agent_idx].respawn_timestep) continue;
+
             dreaming_rewards[i] += env->rewards[i];
         }
 
+        //TODO Question TT ? put it before reward ?
         // If a reset has occurs (timestep reached the end), break early
         if (env->timestep == 0) {
             break;

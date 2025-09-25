@@ -164,8 +164,7 @@ pufferlib/ocean/impulse_wars/benchmark/
 
 # Ignore data files
 data/
-pufferlib/resources/drive/binaries/
-pufferlib/resources/drive/binaries_all_map/
+pufferlib/resources/drive/binaries*
 
 # Compiled drive binary in root
 /drive
