@@ -5,35 +5,36 @@
 import contextlib
 import warnings
 
+
 warnings.filterwarnings("error", category=RuntimeWarning)
 
-import os
-import sys
-import glob
+import argparse
 import ast
-import time
+import configparser
+import glob
+import importlib
+import os
 import random
 import shutil
 import subprocess
-import argparse
-import importlib
-import configparser
-from threading import Thread
+import sys
+import time
 from collections import defaultdict, deque
+from threading import Thread
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import psutil
-
 import torch
 import torch.distributed
-from torch.distributed.elastic.multiprocessing.errors import record
 import torch.utils.cpp_extension
+from torch.distributed.elastic.multiprocessing.errors import record
 
 import pufferlib
+import pufferlib.pytorch
 import pufferlib.sweep
 import pufferlib.vector
-import pufferlib.pytorch
+
 
 try:
     from pufferlib import _C
@@ -44,13 +45,15 @@ except ImportError:
 
 import rich
 import rich.traceback
-from rich.table import Table
 from rich.console import Console
+from rich.table import Table
 from rich_argparse import RichHelpFormatter
+
 
 rich.traceback.install(show_locals=False)
 
 import signal  # Aggressively exit on ctrl+c
+
 
 signal.signal(signal.SIGINT, lambda sig, frame: os._exit(0))
 
@@ -283,7 +286,7 @@ class PuffeRL:
                 action, logprob, _ = pufferlib.pytorch.sample_logits(logits)
 
                 # From params traj to continuous bicycle actions
-                
+
                 r = torch.clamp(r, -1, 1)
 
             profile("eval_copy", epoch)
@@ -504,7 +507,11 @@ class PuffeRL:
                 if model_files:
                     # Take the latest checkpoint
                     latest_cpt = max(model_files, key=os.path.getctime)
-                    bin_path = f"{model_dir}.bin"
+
+                    # Change CP -> Bin latest_cpt
+                    model_name_without_ext = os.path.splitext(os.path.basename(latest_cpt))[0]
+
+                    bin_path = os.path.join(model_dir, f"{model_name_without_ext}.bin")
 
                     # Export to .bin for rendering with raylib
                     try:
@@ -1106,7 +1113,7 @@ def train(env_name, args=None, vecenv=None, policy=None, logger=None):
 def eval(env_name, args=None, vecenv=None, policy=None):
     args = args or load_config(env_name)
     backend = args["vec"]["backend"]
-    args['env']['resample_frequency'] = 91
+    args["env"]["resample_frequency"] = 91
     if backend != "PufferEnv":
         backend = "Serial"
 
@@ -1139,10 +1146,11 @@ def eval(env_name, args=None, vecenv=None, policy=None):
         elif driver.render_mode == "rgb_array":
             pass
             import cv2
+
             render = cv2.cvtColor(render, cv2.COLOR_RGB2BGR)
-            cv2.imshow('frame', render)
+            cv2.imshow("frame", render)
             cv2.waitKey(1)
-            time.sleep(1/args['fps'])
+            time.sleep(1 / args["fps"])
 
         with torch.no_grad():
             ob = torch.as_tensor(ob).to(device)
@@ -1165,7 +1173,7 @@ def eval(env_name, args=None, vecenv=None, policy=None):
 def eval_pipeline(env_name, args=None, vecenv=None, policy=None, num_scenarios_loops=10):
     args = args or load_config(env_name)
     backend = args["vec"]["backend"]
-    args['env']['resample_frequency'] = 91 # Change episodes every 91 steps
+    args["env"]["resample_frequency"] = 91  # Change episodes every 91 steps
     if backend != "PufferEnv":
         backend = "Serial"
 
@@ -1186,7 +1194,7 @@ def eval_pipeline(env_name, args=None, vecenv=None, policy=None, num_scenarios_l
     global_infos = {}
 
     for scenario in range(num_scenarios_loops):
-        print(f"Scenario {scenario+1}/{num_scenarios_loops}")
+        print(f"Scenario {scenario + 1}/{num_scenarios_loops}")
         ob, _ = vecenv.reset()
         for ts in range(91):
             with torch.no_grad():
@@ -1205,10 +1213,7 @@ def eval_pipeline(env_name, args=None, vecenv=None, policy=None, num_scenarios_l
                         global_infos[k] = []
                     global_infos[k].append(v)
     # === Final averages ===
-    avg_infos = {
-    k: (np.sum(v) if k == "num_scenarios" else np.mean(v))
-    for k, v in global_infos.items()    
-    }
+    avg_infos = {k: (np.sum(v) if k == "num_scenarios" else np.mean(v)) for k, v in global_infos.items()}
     # === Export to CSV ===
     df = pd.DataFrame(list(avg_infos.items()), columns=["Metric", "Average"])
     eval_folder = f"benchmark/{os.path.basename(args['load_model_path'])}"
@@ -1218,6 +1223,7 @@ def eval_pipeline(env_name, args=None, vecenv=None, policy=None, num_scenarios_l
 
     print(f"\n✅ Results exported to {csv_path}")
     print(df.to_string(index=False))  # pretty console print
+
 
 def sweep(args=None, env_name=None):
     args = args or load_config(env_name)
@@ -1261,7 +1267,7 @@ def profile(args=None, env_name=None, vecenv=None, policy=None):
     train_config = dict(**args["train"], env=args["env_name"], tag=args["tag"])
     pufferl = PuffeRL(train_config, vecenv, policy, neptune=args["neptune"], wandb=args["wandb"])
 
-    from torch.profiler import profile, record_function, ProfilerActivity
+    from torch.profiler import ProfilerActivity, profile, record_function
 
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
         with record_function("model_inference"):
@@ -1465,7 +1471,7 @@ def main():
         train(env_name=env_name)
     elif mode == "eval":
         eval(env_name=env_name)
-    elif mode == 'eval_pipeline':
+    elif mode == "eval_pipeline":
         eval_pipeline(env_name=env_name, num_scenarios_loops=1)
     elif mode == "sweep":
         sweep(env_name=env_name)
