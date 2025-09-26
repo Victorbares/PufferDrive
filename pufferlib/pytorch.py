@@ -193,6 +193,7 @@ def sample_logits(logits, action=None):
         batch = logits.loc.shape[0]
         if action is None:
             action = logits.sample().view(batch, -1)
+            # action = logits.loc.view(batch, -1)  # use mean action for eval
 
         log_probs = logits.log_prob(action.view(batch, -1)).sum(1)
         logits_entropy = logits.entropy().view(batch, -1).sum(1)

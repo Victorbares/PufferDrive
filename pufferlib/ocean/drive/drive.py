@@ -127,9 +127,9 @@ class Drive(pufferlib.PufferEnv):
             dreaming_reward = deepcopy(self.rewards)
 
             # 4. Perform a single "real" step using the controls for the first waypoint
-            # TODO - first step already done in vec_dream_step --> directly take it instead of recomputing
-            self.actions[:] = actions
-            binding.vec_dream_step(self.c_envs, 1)  # Perform a single real step
+            # # TODO - first step already done in vec_dream_step --> directly take it instead of recomputing
+            # self.actions[:] = actions
+            # binding.vec_dream_step(self.c_envs, 1)  # Perform a single real step
             # binding.vec_step(self.c_envs)
 
             # # Replace reward by the dreaming reward

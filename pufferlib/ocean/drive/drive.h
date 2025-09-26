@@ -1918,14 +1918,25 @@ void c_dream_step(Drive* env, int dreaming_steps) {
             break;
         }
     }
-    // Copy accumulated rewards
-    memcpy(env->rewards, dreaming_rewards, env->active_agent_count * sizeof(float));
 
     // Get backup
     if (num_waypoints > 1) {
         restore_env(env, backup);
         free_backup_env(backup);
     }
+
+    // Real c_step after the dreaming with the first action
+    float (*ctrl_actions_f)[2] = (float(*)[2])env->ctrl_trajectory_actions;
+    for (int i = 0; i < env->active_agent_count; i++) {
+        ctrl_actions_f[i][0] = low_level_actions[i][0][0];  // accel
+        ctrl_actions_f[i][1] = low_level_actions[i][0][1];  // steer
+    }
+
+    c_step(env);
+
+    // Overwrite rewards env with the dreaming reward
+    memcpy(env->rewards, dreaming_rewards, env->active_agent_count * sizeof(float));
+    
 }
 
 const Color STONE_GRAY = (Color){80, 80, 80, 255};
