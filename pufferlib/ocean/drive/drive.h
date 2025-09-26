@@ -255,7 +255,7 @@ struct Drive {
 static const float TRAJECTORY_SCALING_FACTORS[12] = {
     // Longitudinal coefficients c0…c5
     0.0f,  // c0: no offset (start at current pos)
-    30.0f, // c1: velocity term (m/s) 10
+    0.0f, // c1: velocity term (m/s) 10
     5.0f,  // c2: acceleration term (m/s²) 1.0
     0.0f,  // c3: jerk term (m/s³) 0.2
     0.0f, // c4: snap term (m/s⁴) 0.05
@@ -263,8 +263,8 @@ static const float TRAJECTORY_SCALING_FACTORS[12] = {
     // Lateral coefficients c0…c5s
     0.25f,  // c0: no lateral offset
     5.0f,  // c1: lateral velocity (m/s) 1.0
-    2.0f,  // c2: lateral acceleration (m/s²) 0.5
-    0.1f,  // c3: lateral jerk (m/s³) 0.1
+    10.0f,  // c2: lateral acceleration (m/s²) 0.5
+    5.0f,  // c3: lateral jerk (m/s³) 0.1
     0.0f, // c4: lateral snap (m/s⁴) 0.02
     0.0f // c5: lateral crackle (m/s⁵) 0.005
 };
