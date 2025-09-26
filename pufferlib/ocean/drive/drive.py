@@ -126,7 +126,7 @@ class Drive(pufferlib.PufferEnv):
             binding.vec_dream_step(self.c_envs, self.dreaming_steps)  # Dreaming steps ahead
             dreaming_reward = deepcopy(self.rewards)
 
-            # 4. Perform a single "real" step using the controls for the first waypoint
+            # # 4. Perform a single "real" step using the controls for the first waypoint
             # # TODO - first step already done in vec_dream_step --> directly take it instead of recomputing
             # self.actions[:] = actions
             # binding.vec_dream_step(self.c_envs, 1)  # Perform a single real step
@@ -378,7 +378,7 @@ def process_all_maps():
     binary_dir.mkdir(parents=True, exist_ok=True)
 
     # Path to the training data
-    data_dir = Path("data/processed/training")
+    data_dir = Path("/mnt/data/100K/large/training")
 
     # Get all JSON files in the training directory
     json_files = sorted(data_dir.glob("*.json"))
@@ -386,7 +386,7 @@ def process_all_maps():
     print(f"Found {len(json_files)} JSON files")
 
     # Process each JSON file
-    for i, map_path in enumerate(json_files[:10000]):
+    for i, map_path in enumerate(json_files[:1000]):
         binary_file = f"map_{i:03d}.bin"  # Use zero-padded numbers for consistent sorting
         binary_path = binary_dir / binary_file
 

@@ -337,8 +337,19 @@ static int make_gif_from_frames(const char *pattern, int fps,
 
 void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int log_trajectories, int frame_skip) {
     // Use default if no map provided
+
+
+    // give a random int between 0 and 149
+    // srand(time(NULL));
+    // int random_map_idx = rand() % 150;
+    // char random_map_name[256];
+    // snprintf(random_map_name, sizeof(random_map_name), "resources/drive/binaries/map_%03d.bin", random_map_idx);
+    // if (map_name == NULL) {
+    //     map_name = random_map_name;
+    // }
+
     if (map_name == NULL)
-{
+    {
         map_name = "resources/drive/binaries/map_000.bin";
     }
 
