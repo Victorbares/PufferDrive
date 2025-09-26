@@ -316,12 +316,19 @@ static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], f
         float sim_speed = sqrtf(sim_vx * sim_vx + sim_vy * sim_vy);
 
         // Target from waypoint
-        float target_x = waypoints[i][0];
-        float target_y = waypoints[i][1];
+        // Change target to be min i+5 if i+5 < num_waypoints else max num_waypoints-1
+        int target_idx = i + 4;
+        if (target_idx >= num_waypoints)
+            target_idx = num_waypoints - 1;
+
+        int inter = target_idx - i + 1;
+
+        float target_x = waypoints[target_idx][0];
+        float target_y = waypoints[target_idx][1];
 
         // Compute target speed
         float dist_to_target = relative_distance_2d(sim_x, sim_y, target_x, target_y);
-        float target_speed = dist_to_target / TIME_DELTA;
+        float target_speed = dist_to_target / (TIME_DELTA * inter);
 
         // Compute desired acceleration
         float speed_error = target_speed - sim_speed;
