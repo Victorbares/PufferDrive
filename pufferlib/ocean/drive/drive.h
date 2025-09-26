@@ -255,16 +255,16 @@ struct Drive {
 static const float TRAJECTORY_SCALING_FACTORS[4] = {
     // Longitudinal coefficients c0…c5
     // 30.0f, // c1: velocity term (m/s) 10
-    5.0f,  // c2: acceleration term (m/s²) 1.0
+    1.5f,  // c2: acceleration term (m/s²) 1.0
     0.0f, // c0 offset lateral
-    3.0f,  // c1: lateral velocity (m/s) 1.0
-    25.0f,  // c2: lateral acceleration (m/s²) 0.5
+    5.0f,  // c1: lateral velocity (m/s) 1.0
+    5.0f,  // c2: lateral acceleration (m/s²) 0.5
 };
 
 // --- MPC Controller ---
 // Proportional gains for the controller
-#define KP_SPEED 2.0f
-#define KP_STEERING 3.0f
+#define KP_SPEED 1.0f
+#define KP_STEERING 1.0f
 
 // Time delta between waypoints
 #define TIME_DELTA 0.1f
@@ -317,7 +317,7 @@ static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], f
 
         // Compute desired acceleration
         float speed_error = target_speed - sim_speed;
-        float desired_accel = KP_SPEED * speed_error;
+        float desired_accel = (KP_SPEED * speed_error) / TIME_DELTA;
 
         // Compute desired steering
         float dx = target_x - sim_x;
@@ -332,9 +332,9 @@ static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], f
         float desired_steering = KP_STEERING * yaw_error;
 
         // Apply speed-dependent steering reduction
-        float speed_factor = fmaxf(0.1f, 1.0f - sim_speed / 20.0f);
-        // float speed_factor = fmaxf(0.5f, 1.0f - sim_speed / 40.0f);
-        desired_steering = desired_steering * speed_factor;
+        // float speed_factor = fmaxf(0.1f, 1.0f - sim_speed / 20.0f);
+        // // float speed_factor = fmaxf(0.5f, 1.0f - sim_speed / 40.0f);
+        // desired_steering = desired_steering * speed_factor;
 
         // Clip the values to the vehicle's physical limits
         float clipped_accel = clip_value(desired_accel, -MAX_ACCEL, MAX_ACCEL);
@@ -399,52 +399,6 @@ typedef struct DriveState {
     int active_agent_count;
     int num_entities;
 } DriveState;
-
-// static inline void* backup_env(Drive* env) {
-//     DriveState* backup = (DriveState*)malloc(sizeof(DriveState));
-//     if (!backup) return NULL;
-
-//     backup->timestep = env->timestep;
-//     backup->active_agent_count = env->active_agent_count;
-//     backup->num_entities = env->num_entities;
-
-//     backup->entities = (Entity*)malloc(backup->num_entities * sizeof(Entity));
-//     if (!backup->entities) {
-//         free(backup);
-//         return NULL;
-//     }
-//     memcpy(backup->entities, env->entities, backup->num_entities * sizeof(Entity));
-
-//     backup->logs = (Log*)malloc(backup->active_agent_count * sizeof(Log));
-//     if (!backup->logs) {
-//         free(backup->entities);
-//         free(backup);
-//         return NULL;
-//     }
-//     memcpy(backup->logs, env->logs, backup->active_agent_count * sizeof(Log));
-
-//     return (void*)backup;
-// }
-
-// static inline void c_restore_state(Drive* env, void* state_backup) {
-//     if (!state_backup) return;
-//     DriveState* backup = (DriveState*)state_backup;
-
-//     // This is a shallow copy. It is assumed that the data pointed to by
-//     // pointers within the Entity struct (e.g., trajectory data) is read-only
-//     // during a step and does not need to be backed up.
-//     memcpy(env->entities, backup->entities, backup->num_entities * sizeof(Entity));
-//     memcpy(env->logs, backup->logs, backup->active_agent_count * sizeof(Log));
-//     env->timestep = backup->timestep;
-// }
-
-// static inline void c_free_state(void* state_backup) {
-//     if (!state_backup) return;
-//     DriveState* backup = (DriveState*)state_backup;
-//     free(backup->entities);
-//     free(backup->logs);
-//     free(backup);
-// }
 
 void add_log(Drive* env) {
     for(int i = 0; i < env->active_agent_count; i++){
@@ -1797,15 +1751,9 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
     coeffs_lateral[1] = fmin(scaled_control_points[2], 0.1 * coeffs_longitudinal[1]);
     coeffs_lateral[2] = scaled_control_points[3];
 
-    // float duration = (num_waypoints + 1) *0.1f;
-    float duration = 1.0f; // (num_waypoints + 1) / 2.0f;
-    float dt = 0.1f; // Time step for each waypoint, matching Python side
-    float num = (duration / dt) - 1.0f;
-    float step = (duration - dt) / (num - 1.0f);
-
     // 2. Generate waypoints using polynomial trajectory generation (with current agents position)
     for (int i = 0; i < num_waypoints; ++i) {
-        float t = dt + i * step;
+        float t = TIME_DELTA * (i + 1);
 
         // Polyval of degree 5
         float local_x = polyval(coeffs_longitudinal, 2, t);
@@ -1838,21 +1786,12 @@ void print_trajectory_lengths(int agent_count, int num_waypoints, float trajecto
 
 void c_dream_step(Drive* env, int dreaming_steps) {
 
-    int num_waypoints;
-    if (dreaming_steps > 1)
-    {
-        num_waypoints = dreaming_steps - 1;
-    }
-    else{
-        num_waypoints = 1;
-    }
+    int num_waypoints = dreaming_steps;
+
     // Backup env at current timestep
     DriveState* backup;
-    if (num_waypoints > 1)
-    {
-        backup = (DriveState*)malloc(sizeof(DriveState));
-        backup_env(env, backup);
-    }
+    backup = (DriveState*)malloc(sizeof(DriveState));
+    backup_env(env, backup);
 
     // Step 1: trajectory_params points to your high-level predicted actions
     float (*trajectory_params)[4] = (float(*)[4])env->actions;
@@ -1872,25 +1811,7 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     float dreaming_rewards[env->active_agent_count];
     memset(dreaming_rewards, 0, env->active_agent_count * sizeof(float));
 
-    // Loss L2 trajectory expert
-    for (int i = 0; i < env->active_agent_count; i++) {
-        int agent_idx = env->active_agent_indices[i];
-        Entity* agent = &env->entities[agent_idx];
-        float loss = 0.0f;
-        for (int wp = 0; wp < num_waypoints; wp++) {
-            float dx = trajectory_waypoints[i][wp][0] - agent->traj_x[env->timestep + wp];
-            float dy = trajectory_waypoints[i][wp][1] - agent->traj_y[env->timestep + wp];
-
-            if (env->timestep + wp >= TRAJECTORY_LENGTH) {
-                // If we exceed the trajectory length, break out of the loop
-                break;
-            }
-            loss += sqrtf(dx * dx + dy * dy);
-        }
-        // printf("Agent %d Trajectory L2 Loss: %.3f\n", agent_idx, loss);
-        dreaming_rewards[i] = -0.01f * loss; // Small penalty for trajectory deviation
-    }
-
+    int env_timestep_begining_of_dreaming = env->timestep;
     // Step 3: Play low-level actions timestep by timestep
     for (int ts = 0; ts < num_waypoints; ts++) {
         float (*ctrl_actions_f)[2] = (float(*)[2])env->ctrl_trajectory_actions;
@@ -1901,26 +1822,41 @@ void c_dream_step(Drive* env, int dreaming_steps) {
         // Step the environment with ctrl_actions of timestep ts
         c_step(env);
 
-        // // Accumulate rewards
-        // for (int i = 0; i < env->active_agent_count; i++) {
-        //     int agent_idx = env->active_agent_indices[i];
-        //     // if collision - keep reward -1 but still do not move in the dynamics
-        //     dreaming_rewards[i] += env->rewards[i];
-        // }
+        // Accumulate rewards
+        for (int i = 0; i < env->active_agent_count; i++) {
+            int agent_idx = env->active_agent_indices[i];
+            // if collision - keep reward -1 but still do not move in the dynamics
 
+            // Don't give reward when agent respawn during dreaming
+            if (env->entities[agent_idx].respawn_timestep > env_timestep_begining_of_dreaming
+    && env->timestep > env->entities[agent_idx].respawn_timestep) continue;
+
+            dreaming_rewards[i] += env->rewards[i];
+        }
+
+        //TODO Question TT ? put it before reward ?
         // If a reset has occurs (timestep reached the end), break early
         if (env->timestep == 0) {
             break;
         }
     }
-    // Copy accumulated rewards
-    memcpy(env->rewards, dreaming_rewards, env->active_agent_count * sizeof(float));
 
     // Get backup
-    if (num_waypoints > 1) {
-        restore_env(env, backup);
-        free_backup_env(backup);
+    restore_env(env, backup);
+    free_backup_env(backup);
+
+    // Real c_step after the dreaming with the first action
+    float (*ctrl_actions_f)[2] = (float(*)[2])env->ctrl_trajectory_actions;
+    for (int i = 0; i < env->active_agent_count; i++) {
+        ctrl_actions_f[i][0] = low_level_actions[i][0][0];  // accel
+        ctrl_actions_f[i][1] = low_level_actions[i][0][1];  // steer
     }
+
+    c_step(env);
+
+    // Overwrite rewards env with the dreaming reward
+    memcpy(env->rewards, dreaming_rewards, env->active_agent_count * sizeof(float));
+    
 }
 
 const Color STONE_GRAY = (Color){80, 80, 80, 255};
