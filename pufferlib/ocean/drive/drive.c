@@ -68,7 +68,7 @@ DriveNet* init_drivenet(Weights* weights, int num_agents) {
     net->gelu = make_gelu(num_agents, 3*input_size);
     net->shared_embedding = make_linear(weights, num_agents, input_size*3, hidden_size);
     net->relu = make_relu(num_agents, hidden_size);
-    net->actor = make_linear(weights, num_agents, hidden_size, 24);
+    net->actor = make_linear(weights, num_agents, hidden_size, 8);
     net->value_fn = make_linear(weights, num_agents, hidden_size, 1);
     net->lstm = make_lstm(weights, num_agents, hidden_size, 256);
     memset(net->lstm->state_h, 0, num_agents*256*sizeof(float));
@@ -224,14 +224,14 @@ void forward(DriveNet* net, float* observations, float* actions) {
     linear(net->value_fn, net->lstm->state_h);
     // Split actor output into loc and scale, apply softplus to scale
     for (int b = 0; b < net->num_agents; b++) {
-        float* params = &net->actor->output[b * 24];
+        float* params = &net->actor->output[b * 8];
         float* loc = params;
-        float* scale = params + 12;
-        for (int i = 0; i < 12; i++) {
+        float* scale = params + 4;
+        for (int i = 0; i < 4; i++) {
             float std = logf(1.0f + expf(scale[i])) + 1e-4f; // softplus
             // For deterministic: actions[b*12 + i] = loc[i];
             // For stochastic: sample from Normal(loc[i], std)
-            actions[b*12 + i] = loc[i]; // Use mean for now
+            actions[b*4 + i] = loc[i]; // Use mean for now
             // Optionally, you could also output std if needed
         }
     }
@@ -338,9 +338,17 @@ static int make_gif_from_frames(const char *pattern, int fps,
 void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int log_trajectories, int frame_skip) {
     // Use default if no map provided
     if (map_name == NULL)
-{
+    {
         map_name = "resources/drive/binaries/map_000.bin";
     }
+    // if (map_name == NULL) {
+    //     int random_number = rand() % 600; // 0 to 599 inclusive
+    //     char buffer[100];
+    //     sprintf(buffer, "resources/drive/binaries/map_%03d.bin", random_number);
+    //     map_name = buffer;
+
+    //     // printf("Selected map: %s\n", map_name);
+    // }
 
     if (frame_skip <= 0) {
         frame_skip = 1;  // Default: render every frame
@@ -405,7 +413,7 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
                 rendered_frames++;
             }
 
-            float (*actions)[12] = (float (*)[12])env.actions;
+            float (*actions)[4] = (float (*)[4])env.actions;
             forward(net, env.observations, env.actions);
             int num_waypoints = env.dreaming_steps - 1;
 
@@ -413,7 +421,7 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
             {
                 // FIXME create a function that handle traj
                 //  Handle trajectory actions
-                float (*trajectory_params)[12] = (float (*)[12])env.actions;
+                float (*trajectory_params)[4] = (float (*)[4])env.actions;
 
                 // Buffers for waypoints and low-level actions
                 float trajectory_waypoints[env.active_agent_count][num_waypoints][2];

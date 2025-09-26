@@ -252,21 +252,13 @@ struct Drive {
 };
 
 
-static const float TRAJECTORY_SCALING_FACTORS[12] = {
+static const float TRAJECTORY_SCALING_FACTORS[4] = {
     // Longitudinal coefficients c0…c5
-    0.0f,  // c0: no offset (start at current pos)
-    30.0f, // c1: velocity term (m/s) 10
+    // 30.0f, // c1: velocity term (m/s) 10
     5.0f,  // c2: acceleration term (m/s²) 1.0
-    0.0f,  // c3: jerk term (m/s³) 0.2
-    0.0f, // c4: snap term (m/s⁴) 0.05
-    0.0f, // c5: crackle term (m/s⁵) 0.01
-    // Lateral coefficients c0…c5s
-    0.0f,  // c0: no lateral offset
-    5.0f,  // c1: lateral velocity (m/s) 1.0
-    1.0f,  // c2: lateral acceleration (m/s²) 0.5
-    0.0f,  // c3: lateral jerk (m/s³) 0.1
-    0.0f, // c4: lateral10  snap (m/s⁴) 0.02
-    0.0f // c5: lateral crackle (m/s⁵) 0.005
+    0.0f, // c0 offset lateral
+    3.0f,  // c1: lateral velocity (m/s) 1.0
+    25.0f,  // c2: lateral acceleration (m/s²) 0.5
 };
 
 // --- MPC Controller ---
@@ -384,7 +376,7 @@ static inline float clip_value(float val, float min_val, float max_val) {
  * @param scaled_control_points Output array of 12 scaled float control points.
  */
 static inline void get_control_points(const float* action, float* scaled_control_points) {
-    for (int i = 0; i < 12; ++i) {
+    for (int i = 0; i < 4; ++i) {
         float clipped_action = clip_value(action[i], -1.0f, 1.0f);
         scaled_control_points[i] = clipped_action * TRAJECTORY_SCALING_FACTORS[i];
     }
@@ -394,7 +386,7 @@ static inline void get_control_points(const float* action, float* scaled_control
 // This matches numpy.polyval's behavior.
 static inline float polyval(const float* coeffs, int degree, float t) {
     float result = 0.0f;
-    for (int i = 5; i >= 0; --i) {
+    for (int i = degree; i >= 0; --i) {
         result = result * t + coeffs[i];
     }
     return result;
@@ -1789,22 +1781,21 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
     float sin_heading = sin(agent->heading); // agent->heading_y
     float sim_vx = agent->vx;
     float sim_vy = agent->vy;
+    float speed = sqrtf(sim_vx * sim_vx + sim_vy * sim_vy);
     // printf("Agent %d Position: (%.3f, %.3f), Heading: (cos: %.3f, sin: %.3f)\n", agent_idx, current_x, current_y, cos_heading, sin_heading);
 
     // 1. Get scaled control points from raw trajectory parameters
-    float scaled_control_points[12];
+    float scaled_control_points[4];
     get_control_points(trajectory_params, scaled_control_points);
 
-    float coeffs_longitudinal[6];
-    float coeffs_lateral[6];
-    for (int i = 0; i < 6; ++i) {
-        coeffs_longitudinal[i] = scaled_control_points[i];
-        coeffs_lateral[i] = scaled_control_points[i + 6];
-    }
-    float speed = sqrtf(sim_vx * sim_vx + sim_vy * sim_vy);
-    coeffs_longitudinal[1] = speed; //fmax(0.0f, coeffs_longitudinal[1]); // Ensure initial velocity is non-negative
-    coeffs_lateral[1] = fmin(coeffs_lateral[1], 0.1 * coeffs_longitudinal[1]);
-
+    float coeffs_longitudinal[3];
+    float coeffs_lateral[3];
+    coeffs_longitudinal[0] = 0.0f; // offset 1m in front of the vehicle
+    coeffs_longitudinal[1] = speed; 
+    coeffs_longitudinal[2] = scaled_control_points[0];
+    coeffs_lateral[0] = scaled_control_points[1];
+    coeffs_lateral[1] = fmin(scaled_control_points[2], 0.1 * coeffs_longitudinal[1]);
+    coeffs_lateral[2] = scaled_control_points[3];
 
     // float duration = (num_waypoints + 1) *0.1f;
     float duration = 1.0f; // (num_waypoints + 1) / 2.0f;
@@ -1817,9 +1808,8 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
         float t = dt + i * step;
 
         // Polyval of degree 5
-        float local_x = polyval(coeffs_longitudinal, 5, t);
-        float local_y = polyval(coeffs_lateral, 5, t);
-
+        float local_x = polyval(coeffs_longitudinal, 2, t);
+        float local_y = polyval(coeffs_lateral, 2, t);
 
         // 3. Convert local waypoints to world frame
         waypoints[i][0] = current_x + (local_x * cos_heading - local_y * sin_heading);
@@ -1865,7 +1855,7 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     }
 
     // Step 1: trajectory_params points to your high-level predicted actions
-    float (*trajectory_params)[12] = (float(*)[12])env->actions;
+    float (*trajectory_params)[4] = (float(*)[4])env->actions;
 
     // Buffers for waypoints and low-level actions
     float trajectory_waypoints[env->active_agent_count][num_waypoints][2];
@@ -1882,6 +1872,24 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     float dreaming_rewards[env->active_agent_count];
     memset(dreaming_rewards, 0, env->active_agent_count * sizeof(float));
 
+    // Loss L2 trajectory expert
+    for (int i = 0; i < env->active_agent_count; i++) {
+        int agent_idx = env->active_agent_indices[i];
+        Entity* agent = &env->entities[agent_idx];
+        float loss = 0.0f;
+        for (int wp = 0; wp < num_waypoints; wp++) {
+            float dx = trajectory_waypoints[i][wp][0] - agent->traj_x[env->timestep + wp];
+            float dy = trajectory_waypoints[i][wp][1] - agent->traj_y[env->timestep + wp];
+
+            if (env->timestep + wp >= TRAJECTORY_LENGTH) {
+                // If we exceed the trajectory length, break out of the loop
+                break;
+            }
+            loss += sqrtf(dx * dx + dy * dy);
+        }
+        // printf("Agent %d Trajectory L2 Loss: %.3f\n", agent_idx, loss);
+        dreaming_rewards[i] = -0.01f * loss; // Small penalty for trajectory deviation
+    }
 
     // Step 3: Play low-level actions timestep by timestep
     for (int ts = 0; ts < num_waypoints; ts++) {
@@ -1893,12 +1901,12 @@ void c_dream_step(Drive* env, int dreaming_steps) {
         // Step the environment with ctrl_actions of timestep ts
         c_step(env);
 
-        // Accumulate rewards
-        for (int i = 0; i < env->active_agent_count; i++) {
-            int agent_idx = env->active_agent_indices[i];
-            // if collision - keep reward -1 but still do not move in the dynamics
-            dreaming_rewards[i] += env->rewards[i];
-        }
+        // // Accumulate rewards
+        // for (int i = 0; i < env->active_agent_count; i++) {
+        //     int agent_idx = env->active_agent_indices[i];
+        //     // if collision - keep reward -1 but still do not move in the dynamics
+        //     dreaming_rewards[i] += env->rewards[i];
+        // }
 
         // If a reset has occurs (timestep reached the end), break early
         if (env->timestep == 0) {

@@ -551,6 +551,11 @@ class PuffeRL:
                             cmd.append("--log-trajectories")
                         if config["render_map"] is not None:
                             map_path = config["render_map"]
+                            # Pick a random number between 0 and 599
+                            # n = random.randint(0, 599)
+                            # map_name = f"map_{n:03d}"
+                            # Format with zero-padding (3 digits)
+                            # map_path = f"pufferlib/resources/drive/binaries/{map_name}.bin"
                             if os.path.exists(map_path):
                                 cmd.extend(["--map-name", map_path])
                         # Call C code that runs eval_gif() in subprocess
@@ -566,7 +571,7 @@ class PuffeRL:
                         if result.returncode == 0 or (result.returncode == 1 and gifs_exist):
                             # Move both generated GIFs to the model directory
                             gifs = [
-                                ("resources/drive/output_topdown.gif", f"epoch_{self.epoch:06d}_topdown.gif"),
+                                ("resources/drive/output_topdown.gif", f"epoch_{self.epoch:06d}_topdown.gif"), #  f"{map_name}_epoch_{self.epoch:06d}_topdown.gif")
                                 ("resources/drive/output_agent.gif", f"epoch_{self.epoch:06d}_agent.gif"),
                             ]
 
