@@ -272,8 +272,8 @@ static const float TRAJECTORY_SCALING_FACTORS[12] = {
 
 // --- MPC Controller ---
 // Proportional gains for the controller
-#define KP_SPEED 1.0f
-#define KP_STEERING 1.0f
+#define KP_SPEED 2.0f
+#define KP_STEERING 3.0f
 
 // Time delta between waypoints
 #define TIME_DELTA 0.1f
