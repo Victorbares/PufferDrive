@@ -257,8 +257,8 @@ static const float TRAJECTORY_SCALING_FACTORS[4] = {
     // 30.0f, // c1: velocity term (m/s) 10
     1.5f,  // c2: acceleration term (m/s²) 1.0
     0.0f, // c0 offset lateral
-    5.0f,  // c1: lateral velocity (m/s) 1.0
-    5.0f,  // c2: lateral acceleration (m/s²) 0.5
+    3.0f,  // c1: lateral velocity (m/s) 1.0
+    3.0f,  // c2: lateral acceleration (m/s²) 0.5
 };
 
 // --- MPC Controller ---
@@ -331,15 +331,21 @@ static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], f
         // Proportional control for steering
         float desired_steering = KP_STEERING * yaw_error;
 
-        // Apply speed-dependent steering reduction
-        // float speed_factor = fmaxf(0.1f, 1.0f - sim_speed / 20.0f);
-        // // float speed_factor = fmaxf(0.5f, 1.0f - sim_speed / 40.0f);
-        // desired_steering = desired_steering * speed_factor;
-
         // Clip the values to the vehicle's physical limits
         float clipped_accel = clip_value(desired_accel, -MAX_ACCEL, MAX_ACCEL);
         float clipped_steering = clip_value(desired_steering, -MAX_STEERING, MAX_STEERING);
 
+        // Do not move if predicted backward trajectory
+        float cos_heading = cosf(sim_heading);
+        float sin_heading = sinf(sim_heading);
+        // Dot product
+        float dot = cos_heading * dx + sin_heading * dy;
+
+        // If target is behind, override actions
+        if (dot < 0.0f) {
+            clipped_accel = -4.0f;   // strong brake / reverse accel
+            clipped_steering = 0.0f;    // keep wheels straight
+        }
         // Store the computed action
         low_level_actions[i][0] = clipped_accel;
         low_level_actions[i][1] = clipped_steering;
@@ -1745,11 +1751,13 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
     float coeffs_longitudinal[3];
     float coeffs_lateral[3];
     coeffs_longitudinal[0] = 0.0f; // offset 1m in front of the vehicle
-    coeffs_longitudinal[1] = speed; 
+    coeffs_longitudinal[1] = speed; // - fabs(scaled_control_points[2]);
     coeffs_longitudinal[2] = scaled_control_points[0];
     coeffs_lateral[0] = scaled_control_points[1];
-    coeffs_lateral[1] = fmin(scaled_control_points[2], 0.1 * coeffs_longitudinal[1]);
+    coeffs_lateral[1] = scaled_control_points[2]; // fmin(scaled_control_points[2], 0.1 * coeffs_longitudinal[1]);
     coeffs_lateral[2] = scaled_control_points[3];
+
+    // coeffs_longitudinal[1] -= fabs(coeffs_longitudinal[2]) * TIME_DELTA; // adjust for acceleration over the time delta
 
     // 2. Generate waypoints using polynomial trajectory generation (with current agents position)
     for (int i = 0; i < num_waypoints; ++i) {
@@ -1846,14 +1854,15 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     free_backup_env(backup);
 
     // Real c_step after the dreaming with the first action
-    float (*ctrl_actions_f)[2] = (float(*)[2])env->ctrl_trajectory_actions;
-    for (int i = 0; i < env->active_agent_count; i++) {
-        ctrl_actions_f[i][0] = low_level_actions[i][0][0];  // accel
-        ctrl_actions_f[i][1] = low_level_actions[i][0][1];  // steer
+    int executed_steps = 1; //(rand() % 6) + 3;  // gives a random number between 3 and 8
+    for (int ts = 0; ts < executed_steps; ts++) {
+        float (*ctrl_actions_f)[2] = (float(*)[2])env->ctrl_trajectory_actions;
+        for (int i = 0; i < env->active_agent_count; i++) {
+            ctrl_actions_f[i][0] = low_level_actions[i][ts][0];  // accel
+            ctrl_actions_f[i][1] = low_level_actions[i][ts][1];  // steer
+        }
+        c_step(env);
     }
-
-    c_step(env);
-
     // Overwrite rewards env with the dreaming reward
     memcpy(env->rewards, dreaming_rewards, env->active_agent_count * sizeof(float));
     
