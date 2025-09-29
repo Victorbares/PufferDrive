@@ -272,8 +272,8 @@ static const float TRAJECTORY_SCALING_FACTORS[12] = {
 
 // --- MPC Controller ---
 // Proportional gains for the controller
-#define KP_SPEED 2.0f
-#define KP_STEERING 3.0f
+#define KP_SPEED 1.0f
+#define KP_STEERING 1.0f
 
 // Time delta between waypoints
 #define TIME_DELTA 0.1f
@@ -1677,7 +1677,7 @@ void c_step(Drive* env){
         float progression_reward = 0.0f;
         if ((env->previous_distance_to_goal[i] - distance_to_goal) > 0.0f)
         {
-            progression_reward = 0.02f;
+            progression_reward = 0.01f;
         }
         env->rewards[i] += progression_reward;
         env->logs[i].episode_return += progression_reward;
@@ -1866,6 +1866,12 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     && env->timestep > env->entities[agent_idx].respawn_timestep) continue;
 
             dreaming_rewards[i] += env->rewards[i];
+
+            // If just respawned, give reward + Progress reward for remaining waypoints
+            if (env->entities[agent_idx].respawn_timestep == env->timestep) {
+                dreaming_rewards[i] += 0.015f * (num_waypoints - ts + 1);
+                continue;
+            }
         }
 
         //TODO Question TT ? put it before reward ?
