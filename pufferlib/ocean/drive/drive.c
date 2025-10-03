@@ -435,7 +435,7 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
                 {
                     int agent_idx = env.active_agent_indices[i];
                     c_traj(&env, agent_idx, trajectory_params[i], trajectory_waypoints[i], num_waypoints);
-                    c_control(&env, agent_idx, trajectory_waypoints[i], low_level_actions[i], num_waypoints);
+                    c_control(&env, agent_idx, trajectory_waypoints[i], low_level_actions[i], num_waypoints,0);
                     // fill dream_traj for each dream_step
                     for (int d = 0; d < num_waypoints; d++)
                     {
