@@ -48,7 +48,7 @@ class Drive(pufferlib.PufferEnv):
         self.num_obs = 7 + 63 * 7 + 200 * 7
         self.single_observation_space = gymnasium.spaces.Box(low=-1, high=1, shape=(self.num_obs,), dtype=np.float32)
         # The policy now outputs 12 parameters for the polynomial trajectory
-        self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(4,), dtype=np.float32)
+        self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
 
         # The C backend still expects 2 continuous low-level actions
         self._action_type_flag = 0
@@ -183,6 +183,7 @@ class Drive(pufferlib.PufferEnv):
 
                 binding.vec_reset(self.c_envs, seed)
                 self.terminals[:] = 1
+
         if self._action_type_flag != 2:
             return (self.observations, self.rewards, self.terminals, self.truncations, info)  # self.rewards
         else:

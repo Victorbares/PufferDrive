@@ -211,6 +211,7 @@ struct Drive {
     float* rewards;
     float* ctrl_trajectory_actions;
     float* previous_distance_to_goal;
+    int dreaming_mode;
     int dreaming_steps;
     unsigned char* terminals;
     Log log;
@@ -252,13 +253,12 @@ struct Drive {
 };
 
 
-static const float TRAJECTORY_SCALING_FACTORS[4] = {
+static const float TRAJECTORY_SCALING_FACTORS[3] = {
     // Longitudinal coefficients c0…c5
     // 30.0f, // c1: velocity term (m/s) 10
-    1.5f,  // c2: acceleration term (m/s²) 1.0
-    0.0f, // c0 offset lateral
-    3.0f,  // c1: lateral velocity (m/s) 1.0
-    3.0f,  // c2: lateral acceleration (m/s²) 0.5
+    2.0f,  // c2: acceleration term (m/s²) 1.0
+    2.0f,  // c1: lateral velocity (m/s) 1.0
+    5.0f,  // c2: lateral acceleration (m/s²) 0.5
 };
 
 // --- MPC Controller ---
@@ -302,14 +302,23 @@ static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], f
     float sim_vx = agent->vx;
     float sim_vy = agent->vy;
     float agent_length = agent->length;
+    float target_xp;
+    float target_yp;
+    float dxp;
+    float dyp;
+    float dx;
+    float dy;
+    float target_x;
+    float target_y;
+    float desired_yaw;
 
     for (int i = 0; i < num_waypoints; ++i) {
         // Current simulated state
         float sim_speed = sqrtf(sim_vx * sim_vx + sim_vy * sim_vy);
 
         // Target from waypoint
-        float target_x = waypoints[i][0];
-        float target_y = waypoints[i][1];
+        target_x = waypoints[i][0];
+        target_y = waypoints[i][1];
 
         // Compute target speed
         float dist_to_target = relative_distance_2d(sim_x, sim_y, target_x, target_y);
@@ -320,9 +329,18 @@ static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], f
         float desired_accel = (KP_SPEED * speed_error) / TIME_DELTA;
 
         // Compute desired steering
-        float dx = target_x - sim_x;
-        float dy = target_y - sim_y;
-        float desired_yaw = atan2f(dy, dx);
+        // if (i != num_waypoints - 1){
+        //     target_xp = waypoints[i + 1][0];
+        //     target_yp = waypoints[i + 1][1];
+        //     dxp = target_xp - target_x;
+        //     dyp = target_yp - target_y;
+        //     desired_yaw = atan2f(dyp, dxp);
+        // }
+        // else{
+        dx = target_x - sim_x;
+        dy = target_y - sim_y;
+        desired_yaw = atan2f(dy, dx);
+        // }
 
         // Yaw error (wrapped to [-pi, pi])
         float yaw_error = desired_yaw - sim_heading;
@@ -382,7 +400,7 @@ static inline float clip_value(float val, float min_val, float max_val) {
  * @param scaled_control_points Output array of 12 scaled float control points.
  */
 static inline void get_control_points(const float* action, float* scaled_control_points) {
-    for (int i = 0; i < 4; ++i) {
+    for (int i = 0; i < 3; ++i) {
         float clipped_action = clip_value(action[i], -1.0f, 1.0f);
         scaled_control_points[i] = clipped_action * TRAJECTORY_SCALING_FACTORS[i];
     }
@@ -402,6 +420,7 @@ typedef struct DriveState {
     int timestep;
     Entity* entities;
     Log* logs;
+    float* previous_distance_to_goal;
     int active_agent_count;
     int num_entities;
 } DriveState;
@@ -971,7 +990,7 @@ int check_lane_aligned(Entity* car, Entity* lane, int geometry_idx) {
 
     if (heading_diff > M_PI) heading_diff = 2.0f * M_PI - heading_diff;
 
-    return (heading_diff < (M_PI / 6.0f)) ? 1 : 0; // within 30 degrees
+    return (heading_diff < (M_PI / 24.0f)) ? 1 : 0; // within 30 degrees
 }
 
 void reset_agent_metrics(Drive* env, int agent_idx){
@@ -1253,6 +1272,10 @@ void init(Drive* env){
     env->logs = (Log*)calloc(env->active_agent_count, sizeof(Log));
     env->ctrl_trajectory_actions = (float*)calloc(env->active_agent_count*2, sizeof(float));
     env->previous_distance_to_goal = (float*)calloc(env->active_agent_count, sizeof(float));
+    for (int i = 0; i < env->active_agent_count; i++) {
+        env->previous_distance_to_goal[i] = 10000.0f;
+    }
+    env->dreaming_mode = 0;
 
 }
 
@@ -1285,7 +1308,7 @@ void allocate(Drive* env){
     } else if (env->action_type == 1) {
         env->actions = (float*)calloc(env->active_agent_count*2, sizeof(float));
     } else if (env->action_type == 2) {
-        env->actions = (float*)calloc(env->active_agent_count*12, sizeof(float));
+        env->actions = (float*)calloc(env->active_agent_count*3, sizeof(float));
     } else {
         printf("Invalid action type. Must be 0 (discrete), 1 (continuous), or 2 (trajectory)\n");
         exit(1);
@@ -1676,7 +1699,8 @@ void c_step(Drive* env){
         int agent_idx = env->active_agent_indices[i];
         int reached_goal = env->entities[agent_idx].metrics_array[REACHED_GOAL_IDX];
         int collision_state = env->entities[agent_idx].collision_state;
-        if(reached_goal){
+        bool respawn_if_coll_in_active_mode = (collision_state > 0) && (!env->dreaming_mode);
+        if((reached_goal) || (respawn_if_coll_in_active_mode)){
             respawn_agent(env, agent_idx);
             //env->entities[agent_idx].x = -10000;
             //env->entities[agent_idx].y = -10000;
@@ -1694,6 +1718,7 @@ static inline void* backup_env(Drive* env, DriveState* backup) {
     backup->timestep = env->timestep;
     backup->active_agent_count = env->active_agent_count;
     backup->num_entities = env->num_entities;
+    backup->previous_distance_to_goal = env->previous_distance_to_goal;
 
     backup->entities = (Entity*)malloc(backup->num_entities * sizeof(Entity));
     if (!backup->entities) {
@@ -1709,6 +1734,9 @@ static inline void* backup_env(Drive* env, DriveState* backup) {
         return NULL;
     }
     memcpy(backup->logs, env->logs, backup->active_agent_count * sizeof(Log));
+
+    backup->previous_distance_to_goal = malloc(backup->active_agent_count * sizeof(float));
+    memcpy(backup->previous_distance_to_goal, env->previous_distance_to_goal, backup->active_agent_count * sizeof(float));
 }
 
 static inline void restore_env(Drive* env, void* state_backup) {
@@ -1720,6 +1748,7 @@ static inline void restore_env(Drive* env, void* state_backup) {
     // during a step and does not need to be backed up.
     memcpy(env->entities, backup->entities, backup->num_entities * sizeof(Entity));
     memcpy(env->logs, backup->logs, backup->active_agent_count * sizeof(Log));
+    memcpy(env->previous_distance_to_goal, backup->previous_distance_to_goal, backup->active_agent_count * sizeof(float));
     env->timestep = backup->timestep;
     env->num_entities = backup->num_entities;
     env->active_agent_count = backup->active_agent_count;
@@ -1730,6 +1759,7 @@ static inline void free_backup_env(void* state_backup) {
     DriveState* backup = (DriveState*)state_backup;
     free(backup->entities);
     free(backup->logs);
+    free(backup->previous_distance_to_goal);
     free(backup);
 }
 
@@ -1745,19 +1775,20 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
     // printf("Agent %d Position: (%.3f, %.3f), Heading: (cos: %.3f, sin: %.3f)\n", agent_idx, current_x, current_y, cos_heading, sin_heading);
 
     // 1. Get scaled control points from raw trajectory parameters
-    float scaled_control_points[4];
+    float scaled_control_points[3];
     get_control_points(trajectory_params, scaled_control_points);
 
     float coeffs_longitudinal[3];
     float coeffs_lateral[3];
-    coeffs_longitudinal[0] = 0.0f; // offset 1m in front of the vehicle
-    coeffs_longitudinal[1] = speed; // - fabs(scaled_control_points[2]);
+    coeffs_longitudinal[0] = 0.0f;
+    coeffs_longitudinal[1] = speed;
     coeffs_longitudinal[2] = scaled_control_points[0];
-    coeffs_lateral[0] = scaled_control_points[1];
-    coeffs_lateral[1] = scaled_control_points[2]; // fmin(scaled_control_points[2], 0.1 * coeffs_longitudinal[1]);
-    coeffs_lateral[2] = scaled_control_points[3];
+    coeffs_lateral[0] = 0.0f;
+    coeffs_lateral[1] = scaled_control_points[1];
+    coeffs_lateral[2] = scaled_control_points[2];
 
-    // coeffs_longitudinal[1] -= fabs(coeffs_longitudinal[2]) * TIME_DELTA; // adjust for acceleration over the time delta
+    // float max_longi_acc = 3 - 1.0 * fabs(coeffs_lateral[2]);
+    // coeffs_longitudinal[2] = clip_value(scaled_control_points[0], -max_longi_acc, max_longi_acc);
 
     // 2. Generate waypoints using polynomial trajectory generation (with current agents position)
     for (int i = 0; i < num_waypoints; ++i) {
@@ -1801,8 +1832,11 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     backup = (DriveState*)malloc(sizeof(DriveState));
     backup_env(env, backup);
 
+    // Start dreaming:
+    env->dreaming_mode = 1;
+
     // Step 1: trajectory_params points to your high-level predicted actions
-    float (*trajectory_params)[4] = (float(*)[4])env->actions;
+    float (*trajectory_params)[3] = (float(*)[3])env->actions;
 
     // Buffers for waypoints and low-level actions
     float trajectory_waypoints[env->active_agent_count][num_waypoints][2];
@@ -1852,6 +1886,9 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     // Get backup
     restore_env(env, backup);
     free_backup_env(backup);
+
+    // End dreaming:
+    env->dreaming_mode = 0;
 
     // Real c_step after the dreaming with the first action
     int executed_steps = 1; //(rand() % 6) + 3;  // gives a random number between 3 and 8
