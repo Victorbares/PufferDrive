@@ -212,7 +212,6 @@ struct Drive {
     float* ctrl_trajectory_actions;
     float* previous_distance_to_goal;
     int dreaming_mode;
-    int dreaming_mode;
     int dreaming_steps;
     unsigned char* terminals;
     Log log;
@@ -432,6 +431,7 @@ typedef struct DriveState {
     int timestep;
     Entity* entities;
     Log* logs;
+    float* previous_distance_to_goal;
     int active_agent_count;
     int num_entities;
 } DriveState;
@@ -1669,7 +1669,7 @@ void c_step(Drive* env){
             }
         }
 
-        float distance_expert_reward = 0.00;
+        float distance_expert_reward = -0.00;
         if (distance_to_expert_min > 1.5f) {
             env->rewards[i] += distance_expert_reward;
             env->logs[i].episode_return += distance_expert_reward;
