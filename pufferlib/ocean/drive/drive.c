@@ -364,6 +364,7 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
         .map_name = map_name,
         .spawn_immunity_timer = 50,
         .action_type = 2,
+        // .current_dream_step = 0,
         .dreaming_steps = 10};
 
     allocate(&env);
@@ -424,31 +425,25 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
                 float (*trajectory_params)[3] = (float (*)[3])env.actions;
 
                 // Buffers for waypoints and low-level actions
-                float trajectory_waypoints[env.active_agent_count][num_waypoints][2];
+                float (*traj_waypoints)[num_waypoints][4] = (float(*)[num_waypoints][4])&env.trajectory_waypoints;
                 float low_level_actions[env.active_agent_count][num_waypoints][2];
 
                 // Step 2: Generate trajectory and control actions for all agents
-                for (int i = 0; i < env.active_agent_count; i++)
-                {
+                for (int i = 0; i < env.active_agent_count; i++) {
                     int agent_idx = env.active_agent_indices[i];
-                    c_traj(&env, agent_idx, trajectory_params[i], trajectory_waypoints[i], num_waypoints);
-                    c_control(&env, agent_idx, trajectory_waypoints[i], low_level_actions[i], num_waypoints);
+                    
+                    // 1. Get trajectory from local poly coeffs predictions to global waypoints
+                    c_traj(&env, agent_idx, trajectory_params[i], traj_waypoints[i], num_waypoints);
+
+                    // 2. Get the headings and the curvature of each waypoint
+                    fill_headings_and_curvature(&env, traj_waypoints[i], num_waypoints);
+
                     // fill dream_traj for each dream_step
                     for (int d = 0; d < num_waypoints; d++)
                     {
                         //print waypoint
-                        dream_traj[i * env.dreaming_steps + d][0] = trajectory_waypoints[i][d][0];
-                        dream_traj[i * env.dreaming_steps + d][1] = trajectory_waypoints[i][d][1];
-                    }
-                }
-                // Save waypoints to draw the
-                for (int ts = 0; ts < 1; ts++)
-                {
-                    float (*ctrl_actions_f)[2] = (float (*)[2])env.ctrl_trajectory_actions;
-                    for (int i = 0; i < env.active_agent_count; i++)
-                    {
-                        ctrl_actions_f[i][0] = low_level_actions[i][ts][0]; // accel
-                        ctrl_actions_f[i][1] = low_level_actions[i][ts][1]; // steer
+                        dream_traj[i * env.dreaming_steps + d][0] = traj_waypoints[i][d][0];
+                        dream_traj[i * env.dreaming_steps + d][1] = traj_waypoints[i][d][1];
                     }
                 }
             }

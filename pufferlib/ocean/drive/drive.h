@@ -211,7 +211,9 @@ struct Drive {
     float* rewards;
     float* ctrl_trajectory_actions;
     float* previous_distance_to_goal;
+    float* trajectory_waypoints;
     int dreaming_mode;
+    int current_dream_step;
     int dreaming_steps;
     unsigned char* terminals;
     Log log;
@@ -292,98 +294,6 @@ void clipSpeed(float *speed) {
     if (*speed < -maxSpeed) *speed = -maxSpeed;
 }
 
-static inline void c_control(Drive* env, int agent_idx, float (*waypoints)[2], float (*low_level_actions)[2], int num_waypoints) {
-    Entity* agent = &env->entities[agent_idx];
-
-    // Initial state for simulation
-    float sim_x = agent->x;
-    float sim_y = agent->y;
-    float sim_heading = agent->heading;
-    float sim_vx = agent->vx;
-    float sim_vy = agent->vy;
-    float agent_length = agent->length;
-    float target_xp;
-    float target_yp;
-    float dxp;
-    float dyp;
-    float dx;
-    float dy;
-    float target_x;
-    float target_y;
-    float desired_yaw;
-
-    for (int i = 0; i < num_waypoints; ++i) {
-        // Current simulated state
-        float sim_speed = sqrtf(sim_vx * sim_vx + sim_vy * sim_vy);
-
-        // Target from waypoint
-        target_x = waypoints[i][0];
-        target_y = waypoints[i][1];
-
-        // Compute target speed
-        float dist_to_target = relative_distance_2d(sim_x, sim_y, target_x, target_y);
-        float target_speed = dist_to_target / TIME_DELTA;
-
-        // Compute desired acceleration
-        float speed_error = target_speed - sim_speed;
-        float desired_accel = (KP_SPEED * speed_error) / TIME_DELTA;
-
-        // Compute desired steering
-        // if (i != num_waypoints - 1){
-        //     target_xp = waypoints[i + 1][0];
-        //     target_yp = waypoints[i + 1][1];
-        //     dxp = target_xp - target_x;
-        //     dyp = target_yp - target_y;
-        //     desired_yaw = atan2f(dyp, dxp);
-        // }
-        // else{
-        dx = target_x - sim_x;
-        dy = target_y - sim_y;
-        desired_yaw = atan2f(dy, dx);
-        // }
-
-        // Yaw error (wrapped to [-pi, pi])
-        float yaw_error = desired_yaw - sim_heading;
-        yaw_error = atan2f(sinf(yaw_error), cosf(yaw_error));
-
-        // Proportional control for steering
-        float desired_steering = KP_STEERING * yaw_error;
-
-        // Clip the values to the vehicle's physical limits
-        float clipped_accel = clip_value(desired_accel, -MAX_ACCEL, MAX_ACCEL);
-        float clipped_steering = clip_value(desired_steering, -MAX_STEERING, MAX_STEERING);
-
-        // Do not move if predicted backward trajectory
-        float cos_heading = cosf(sim_heading);
-        float sin_heading = sinf(sim_heading);
-        // Dot product
-        float dot = cos_heading * dx + sin_heading * dy;
-
-        // If target is behind, override actions
-        if (dot < 0.0f) {
-            clipped_accel = -4.0f;   // strong brake / reverse accel
-            clipped_steering = 0.0f;    // keep wheels straight
-        }
-        // Store the computed action
-        low_level_actions[i][0] = clipped_accel;
-        low_level_actions[i][1] = clipped_steering;
-
-        // --- Simulate one step forward to get the state for the next waypoint ---
-        float next_sim_speed = sim_speed + clipped_accel * TIME_DELTA;
-        if (next_sim_speed < 0) next_sim_speed = 0;
-        clipSpeed(&next_sim_speed); // clips to MAX_SPEED
-
-        float beta = tanhf(0.5f * tanf(clipped_steering));
-        float yaw_rate = (next_sim_speed * cosf(beta) * tanf(clipped_steering)) / agent_length;
-
-        sim_vx = next_sim_speed * cosf(sim_heading + beta);
-        sim_vy = next_sim_speed * sinf(sim_heading + beta);
-
-        sim_x = sim_x + sim_vx * TIME_DELTA;
-        sim_y = sim_y + sim_vy * TIME_DELTA;
-        sim_heading = sim_heading + yaw_rate * TIME_DELTA;
-    }
-}
 
 // Helper to clip a value between a min and max
 static inline float clip_value(float val, float min_val, float max_val) {
@@ -1272,10 +1182,12 @@ void init(Drive* env){
     env->logs = (Log*)calloc(env->active_agent_count, sizeof(Log));
     env->ctrl_trajectory_actions = (float*)calloc(env->active_agent_count*2, sizeof(float));
     env->previous_distance_to_goal = (float*)calloc(env->active_agent_count, sizeof(float));
+    env->trajectory_waypoints = (float*)calloc(env->active_agent_count*10*4, sizeof(float)); // x, y, heading, curvature
     for (int i = 0; i < env->active_agent_count; i++) {
         env->previous_distance_to_goal[i] = 10000.0f;
     }
     env->dreaming_mode = 0;
+    env->current_dream_step = 0;
 
 }
 
@@ -1289,6 +1201,7 @@ void c_close(Drive* env){
     free(env->map_corners);
     free(env->ctrl_trajectory_actions);
     free(env->previous_distance_to_goal);
+    free(env->trajectory_waypoints);
     free(env->grid_cells);
     free(env->neighbor_offsets);
     free(env->neighbor_cache_entities);
@@ -1313,8 +1226,9 @@ void allocate(Drive* env){
         printf("Invalid action type. Must be 0 (discrete), 1 (continuous), or 2 (trajectory)\n");
         exit(1);
     }
-    env->ctrl_trajectory_actions = (float*)calloc(env->active_agent_count*2, sizeof(float));
-    env->previous_distance_to_goal = (float*)calloc(env->active_agent_count, sizeof(float));
+    // env->ctrl_trajectory_actions = (float*)calloc(env->active_agent_count*2, sizeof(float));
+    // env->previous_distance_to_goal = (float*)calloc(env->active_agent_count, sizeof(float));
+    // env->trajectory_waypoints = (float*)calloc(env->active_agent_count*10*4, sizeof(float));
     env->rewards = (float*)calloc(env->active_agent_count, sizeof(float));
     env->terminals= (unsigned char*)calloc(env->active_agent_count, sizeof(unsigned char));
     // printf("allocated\n");
@@ -1334,7 +1248,7 @@ float normalize_heading(float heading){
     return heading;
 }
 
-void move_dynamics(Drive* env, int action_idx, int agent_idx){
+void move_dynamics(Drive* env, int action_idx, int agent_idx, float (*waypoints)[4]){
     if(env->dynamics_model == CLASSIC){
         Entity* agent = &env->entities[agent_idx];
         // Extract action components directly from the multi-discrete action array
@@ -1375,41 +1289,20 @@ void move_dynamics(Drive* env, int action_idx, int agent_idx){
             printf("Invalid action type. Must be 0 (discrete), 1 (continuous)\n");
             exit(1);
         }
-
         // Current state
-        float x = agent->x;
-        float y = agent->y;
-        float heading = agent->heading;
-        float vx = agent->vx;
-        float vy = agent->vy;
+        float curr_x = agent->x;
+        float curr_y = agent->y;
 
-        // Calculate current speed
-        float speed = sqrtf(vx*vx + vy*vy);
+        // Get (x,y,heading) from trajectory predicted
+        agent->x = waypoints[env->current_dream_step][0];
+        agent->y = waypoints[env->current_dream_step][1];
+        agent->heading = waypoints[env->current_dream_step][2];
+        agent->heading_x = cosf(agent->heading);
+        agent->heading_y = sinf(agent->heading);
 
-        // Time step (adjust as needed)
-        const float dt = TIME_DELTA;
-        // Update speed with acceleration
-        speed = speed + acceleration*dt;
-        // if (speed < 0) speed = 0;  // Prevent going backward
-        clipSpeed(&speed);
-        // compute yaw rate
-        float beta = tanh(.5*tanf(steering));
-        // new heading
-        float yaw_rate = (speed*cosf(beta)*tanf(steering)) / agent->length;
-        // new velocity
-        float new_vx = speed*cosf(heading + beta);
-        float new_vy = speed*sinf(heading + beta);
-        // Update position
-        x = x + (new_vx*dt);
-        y = y + (new_vy*dt);
-        heading = heading + yaw_rate*dt;
-        // heading = normalize_heading(heading);
-        // Apply updates to the agent's state
-        agent->x = x;
-        agent->y = y;
-        agent->heading = heading;
-        agent->heading_x = cosf(heading);
-        agent->heading_y = sinf(heading);
+        // Rebuild vx and vy
+        float new_vx = (agent->x - curr_x) / TIME_DELTA;
+        float new_vy = (agent->y - curr_y) / TIME_DELTA;
         agent->vx = new_vx;
         agent->vy = new_vy;
     }
@@ -1610,13 +1503,15 @@ void c_step(Drive* env){
         move_expert(env, env->actions, expert_idx);
     }
     // Process actions for all active agents
+    int num_waypoints = 10;
+    float (*traj_waypoints)[num_waypoints][4] = (float(*)[num_waypoints][4])env->trajectory_waypoints;
     for(int i = 0; i < env->active_agent_count; i++){
         env->logs[i].score = 0.0f;
 	    env->logs[i].episode_length += 1;
         int agent_idx = env->active_agent_indices[i];
         if (env->entities[agent_idx].collision_state == 0)
         {
-            move_dynamics(env, i, agent_idx);
+            move_dynamics(env, i, agent_idx, traj_waypoints[i]);
         }
     }
     for(int i = 0; i < env->active_agent_count; i++){
@@ -1763,7 +1658,7 @@ static inline void free_backup_env(void* state_backup) {
     free(backup);
 }
 
-void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoints)[2], int num_waypoints) {
+void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoints)[4],  int num_waypoints) {
     Entity* agent = &env->entities[agent_idx];
     float current_x = agent->x;
     float current_y = agent->y;
@@ -1801,27 +1696,46 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
         // 3. Convert local waypoints to world frame
         waypoints[i][0] = current_x + (local_x * cos_heading - local_y * sin_heading);
         waypoints[i][1] = current_y + (local_x * sin_heading + local_y * cos_heading);
-        // printf("Waypoint %d: (%.3f, %.3f)\n", i, waypoints[i][0], waypoints[i][1]);
     }
 }
 
-void print_trajectory_lengths(int agent_count, int num_waypoints, float trajectory_waypoints[agent_count][num_waypoints][2]) {
-    for (int agent = 0; agent < agent_count; agent++) {
-        double length = 0.0;
-        for (int i = 1; i < num_waypoints; i++) {
-            float x1 = trajectory_waypoints[agent][i-1][0];
-            float y1 = trajectory_waypoints[agent][i-1][1];
-            float x2 = trajectory_waypoints[agent][i][0];
-            float y2 = trajectory_waypoints[agent][i][1];
 
-            double dx = x2 - x1;
-            double dy = y2 - y1;
-            length += sqrt(dx*dx + dy*dy);
-        }
-        printf("Agent %d trajectory length: %f\n", agent, length);
+void fill_headings_and_curvature(Drive* env, float (*waypoints)[4], int num_waypoints) {
+    // Compute heading for N-1 waypoints using forward difference
+    for (int i = 0; i < num_waypoints - 1; ++i) {
+        double dx = waypoints[i + 1][0] - waypoints[i][0];
+        double dy = waypoints[i + 1][1] - waypoints[i][1];
+        waypoints[i][2] = atan2(dy, dx); // heading in radians
     }
-}
 
+    // For the last waypoint, just copy the previous heading
+    waypoints[num_waypoints - 1][2] = waypoints[num_waypoints - 2][2];
+
+    // --- Compute curvature using central difference ---
+    for (int i = 1; i < num_waypoints - 1; ++i) {
+        double x_prev = waypoints[i - 1][0];
+        double y_prev = waypoints[i - 1][1];
+        double x_next = waypoints[i + 1][0];
+        double y_next = waypoints[i + 1][1];
+
+        double dx = x_next - x_prev;
+        double dy = y_next - y_prev;
+        double ds = sqrt(dx * dx + dy * dy); // arc length between i-1 and i+1
+
+        double dtheta = waypoints[i + 1][2] - waypoints[i - 1][2];
+
+        // Normalize heading difference to [-pi, pi]
+        while (dtheta > M_PI)  dtheta -= 2 * M_PI;
+        while (dtheta < -M_PI) dtheta += 2 * M_PI;
+
+        double curvature = dtheta / ds; // kappa = dtheta / ds
+        waypoints[i][3] = curvature;
+    }
+
+    // Boundary points: use nearest neighbor approximation
+    waypoints[0][3] = waypoints[1][3];
+    waypoints[num_waypoints - 1][3] = waypoints[num_waypoints - 2][3];
+}
 
 void c_dream_step(Drive* env, int dreaming_steps) {
 
@@ -1834,19 +1748,22 @@ void c_dream_step(Drive* env, int dreaming_steps) {
 
     // Start dreaming:
     env->dreaming_mode = 1;
+    env->current_dream_step = 0;
 
     // Step 1: trajectory_params points to your high-level predicted actions
     float (*trajectory_params)[3] = (float(*)[3])env->actions;
-
-    // Buffers for waypoints and low-level actions
-    float trajectory_waypoints[env->active_agent_count][num_waypoints][2];
-    float low_level_actions[env->active_agent_count][num_waypoints][2];
+    // float (*traj_waypoints)[4] = (float(*)[4])env->trajectory_waypoints;
+    float (*traj_waypoints)[num_waypoints][4] = (float(*)[num_waypoints][4])env->trajectory_waypoints;
 
     // Step 2: Generate trajectory and control actions for all agents
     for (int i = 0; i < env->active_agent_count; i++) {
         int agent_idx = env->active_agent_indices[i];
-        c_traj(env, agent_idx, trajectory_params[i], trajectory_waypoints[i], num_waypoints);
-        c_control(env, agent_idx, trajectory_waypoints[i], low_level_actions[i], num_waypoints);
+        
+        // 1. Get trajectory from local poly coeffs predictions to global waypoints
+        c_traj(env, agent_idx, trajectory_params[i], traj_waypoints[i], num_waypoints);
+
+        // 2. Get the headings and the curvature of each waypoint
+        fill_headings_and_curvature(env, traj_waypoints[i], num_waypoints);
     }
 
     // Dreaming rewards accumulator
@@ -1856,13 +1773,9 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     int env_timestep_begining_of_dreaming = env->timestep;
     // Step 3: Play low-level actions timestep by timestep
     for (int ts = 0; ts < num_waypoints; ts++) {
-        float (*ctrl_actions_f)[2] = (float(*)[2])env->ctrl_trajectory_actions;
-        for (int i = 0; i < env->active_agent_count; i++) {
-            ctrl_actions_f[i][0] = low_level_actions[i][ts][0];  // accel
-            ctrl_actions_f[i][1] = low_level_actions[i][ts][1];  // steer
-        }
         // Step the environment with ctrl_actions of timestep ts
         c_step(env);
+        env->current_dream_step += 1;
 
         // Accumulate rewards
         for (int i = 0; i < env->active_agent_count; i++) {
@@ -1876,7 +1789,6 @@ void c_dream_step(Drive* env, int dreaming_steps) {
             dreaming_rewards[i] += env->rewards[i];
         }
 
-        //TODO Question TT ? put it before reward ?
         // If a reset has occurs (timestep reached the end), break early
         if (env->timestep == 0) {
             break;
@@ -1889,15 +1801,11 @@ void c_dream_step(Drive* env, int dreaming_steps) {
 
     // End dreaming:
     env->dreaming_mode = 0;
+    env->current_dream_step = 0;
 
     // Real c_step after the dreaming with the first action
-    int executed_steps = 1; //(rand() % 6) + 3;  // gives a random number between 3 and 8
+    int executed_steps = 1;
     for (int ts = 0; ts < executed_steps; ts++) {
-        float (*ctrl_actions_f)[2] = (float(*)[2])env->ctrl_trajectory_actions;
-        for (int i = 0; i < env->active_agent_count; i++) {
-            ctrl_actions_f[i][0] = low_level_actions[i][ts][0];  // accel
-            ctrl_actions_f[i][1] = low_level_actions[i][ts][1];  // steer
-        }
         c_step(env);
     }
     // Overwrite rewards env with the dreaming reward
