@@ -1810,7 +1810,7 @@ void c_dream_step(Drive* env, int dreaming_steps) {
 
             // If just respawned, give reward + Progress reward for remaining waypoints
             if (env->entities[agent_idx].respawn_timestep == env->timestep) {
-                dreaming_rewards[i] += 0.015f * (num_waypoints - ts + 1);
+                dreaming_rewards[i] += 0.02f * (num_waypoints - ts + 1);
                 continue;
             }
         }
