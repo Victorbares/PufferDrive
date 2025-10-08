@@ -1543,6 +1543,26 @@ void c_step(Drive* env){
             }
         }
 
+
+
+        float distance_to_expert_min = 1e6;
+        for (int i = 0; i< TRAJECTORY_LENGTH; i++){
+            float distance_to_expert = relative_distance_2d(
+                env->entities[agent_idx].x,
+                env->entities[agent_idx].y,
+                env->entities[agent_idx].traj_x[i],
+                env->entities[agent_idx].traj_y[i]);
+            if (distance_to_expert < distance_to_expert_min){
+                distance_to_expert_min = distance_to_expert;
+            }
+        }
+
+        float distance_expert_reward = -0.00;
+        if (distance_to_expert_min > 1.5f) {
+            env->rewards[i] += distance_expert_reward;
+            env->logs[i].episode_return += distance_expert_reward;
+        }
+
         // Goal reached reward
         float distance_to_goal = relative_distance_2d(
                 env->entities[agent_idx].x,
@@ -1567,7 +1587,7 @@ void c_step(Drive* env){
         float progression_reward = 0.0f;
         if ((env->previous_distance_to_goal[i] - distance_to_goal) > 0.0f)
         {
-            progression_reward = 0.02f;
+            progression_reward = 0.01f;
         }
         env->rewards[i] += progression_reward;
         env->logs[i].episode_return += progression_reward;
@@ -1758,7 +1778,7 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     // Step 2: Generate trajectory and control actions for all agents
     for (int i = 0; i < env->active_agent_count; i++) {
         int agent_idx = env->active_agent_indices[i];
-        
+
         // 1. Get trajectory from local poly coeffs predictions to global waypoints
         c_traj(env, agent_idx, trajectory_params[i], traj_waypoints[i], num_waypoints);
 
@@ -1787,8 +1807,15 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     && env->timestep > env->entities[agent_idx].respawn_timestep) continue;
 
             dreaming_rewards[i] += env->rewards[i];
+
+            // If just respawned, give reward + Progress reward for remaining waypoints
+            if (env->entities[agent_idx].respawn_timestep == env->timestep) {
+                dreaming_rewards[i] += 0.015f * (num_waypoints - ts + 1);
+                continue;
+            }
         }
 
+        //TODO Question TT ? put it before reward ?
         // If a reset has occurs (timestep reached the end), break early
         if (env->timestep == 0) {
             break;
@@ -1810,7 +1837,7 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     }
     // Overwrite rewards env with the dreaming reward
     memcpy(env->rewards, dreaming_rewards, env->active_agent_count * sizeof(float));
-    
+
 }
 
 const Color STONE_GRAY = (Color){80, 80, 80, 255};
