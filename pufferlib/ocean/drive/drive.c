@@ -337,18 +337,17 @@ static int make_gif_from_frames(const char *pattern, int fps,
 
 void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int log_trajectories, int frame_skip) {
     // Use default if no map provided
-    if (map_name == NULL)
-    {
-        map_name = "resources/drive/binaries/map_000.bin";
-    }
-    // if (map_name == NULL) {
-    //     int random_number = rand() % 600; // 0 to 599 inclusive
-    //     char buffer[100];
-    //     sprintf(buffer, "resources/drive/binaries/map_%03d.bin", random_number);
-    //     map_name = buffer;
-
-    //     // printf("Selected map: %s\n", map_name);
+    // if (map_name == NULL)
+    // {
+    //     map_name = "resources/drive/binaries/map_000.bin";
     // }
+    srand(time(NULL));
+    int random_map_idx = rand() % 1000;
+    char random_map_name[256];
+    snprintf(random_map_name, sizeof(random_map_name), "resources/drive/binaries/map_%03d.bin", random_map_idx);
+    if (map_name == NULL) {
+        map_name = random_map_name;
+    }
 
     if (frame_skip <= 0) {
         frame_skip = 1;  // Default: render every frame
@@ -416,7 +415,7 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
 
             float (*actions)[3] = (float (*)[3])env.actions;
             forward(net, env.observations, env.actions);
-            int num_waypoints = env.dreaming_steps - 1;
+            int num_waypoints = env.dreaming_steps;
 
             if (env.action_type == 2)
             {
@@ -425,13 +424,14 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
                 float (*trajectory_params)[3] = (float (*)[3])env.actions;
 
                 // Buffers for waypoints and low-level actions
-                float (*traj_waypoints)[num_waypoints][4] = (float(*)[num_waypoints][4])&env.trajectory_waypoints;
+                float (*traj_waypoints)[num_waypoints][4] = (float(*)[num_waypoints][4])env.trajectory_waypoints;
+
                 float low_level_actions[env.active_agent_count][num_waypoints][2];
 
                 // Step 2: Generate trajectory and control actions for all agents
                 for (int i = 0; i < env.active_agent_count; i++) {
                     int agent_idx = env.active_agent_indices[i];
-                    
+
                     // 1. Get trajectory from local poly coeffs predictions to global waypoints
                     c_traj(&env, agent_idx, trajectory_params[i], traj_waypoints[i], num_waypoints);
 
@@ -471,26 +471,30 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
         // }
 
         // Generate both GIFs
+        char output_gif_path[256];
+        sprintf(output_gif_path, "resources/drive/output_topdown_%d.gif", random_map_idx);
+        // sprintf(output_gif_path, "resources/drive/output_topdown.gif", random_map_idx);
+        // Generate both GIFs
         int gif_success_topdown = make_gif_from_frames(
             "resources/drive/frame_topdown_%03d.png",
             10 / frame_skip, // fps
             "resources/drive/palette_topdown.png",
-            "resources/drive/output_topdown.gif");
+            output_gif_path);
 
-        int gif_success_agent = make_gif_from_frames(
-            "resources/drive/frame_agent_%03d.png",
-            15 / frame_skip, // fps
-            "resources/drive/palette_agent.png",
-            "resources/drive/output_agent.gif");
+        // int gif_success_agent = make_gif_from_frames(
+        //     "resources/drive/frame_agent_%03d.png",
+        //     15 / frame_skip, // fps
+        //     "resources/drive/palette_agent.png",
+        //     "resources/drive/output_agent.gif");
 
         if (gif_success_topdown == 0)
         {
             run_cmd("rm -f resources/drive/frame_topdown_*.png resources/drive/palette_topdown.png");
         }
-        if (gif_success_agent == 0)
-        {
-            run_cmd("rm -f resources/drive/frame_agent_*.png resources/drive/palette_agent.png");
-        }
+        // if (gif_success_agent == 0)
+        // {
+        //     run_cmd("rm -f resources/drive/frame_agent_*.png resources/drive/palette_agent.png");
+        // }
     }
     if (rollout_trajectory_snapshot)
     {
@@ -596,8 +600,11 @@ int main(int argc, char* argv[]) {
             }
         }
     }
+    for (int i=0; i<100; i++) {
+        printf("\n");
+        eval_gif(map_name, show_grid, obs_only, lasers, log_trajectories, frame_skip);
+    }
 
-    eval_gif(map_name, show_grid, obs_only, lasers, log_trajectories, frame_skip);
     //demo();
     //performance_test();
     return 0;
