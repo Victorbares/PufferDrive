@@ -556,10 +556,11 @@ class PuffeRL:
                             cmd.append("--lasers")
                         if config["show_human_logs"]:
                             cmd.append("--log-trajectories")
-                        if config["render_map"] is not None:
-                            map_path = config["render_map"]
-                            if os.path.exists(map_path):
-                                cmd.extend(["--map-name", map_path])
+                        # if config["render_map"] is not None:
+                        #     map_path = config["render_map"]
+                        #     if os.path.exists(map_path):
+                        #         cmd.extend(["--map-name", map_path])
+
                         # Call C code that runs eval_gif() in subprocess
                         result = subprocess.run(
                             cmd, cwd=os.getcwd(), capture_output=True, text=True, timeout=120, env=env

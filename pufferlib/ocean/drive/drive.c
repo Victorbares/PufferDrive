@@ -339,19 +339,19 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
     // Use default if no map provided
 
 
-    // give a random int between 0 and 149
-    // srand(time(NULL));
-    // int random_map_idx = rand() % 150;
-    // char random_map_name[256];
-    // snprintf(random_map_name, sizeof(random_map_name), "resources/drive/binaries/map_%03d.bin", random_map_idx);
-    // if (map_name == NULL) {
-    //     map_name = random_map_name;
-    // }
-
-    if (map_name == NULL)
-    {
-        map_name = "resources/drive/binaries/map_000.bin";
+    //give a random int between 0 and 149
+    srand(time(NULL));
+    int random_map_idx = rand() % 1000;
+    char random_map_name[256];
+    snprintf(random_map_name, sizeof(random_map_name), "resources/drive/binaries/map_%03d.bin", random_map_idx);
+    if (map_name == NULL) {
+        map_name = random_map_name;
     }
+
+    // if (map_name == NULL)
+    // {
+    //     map_name = "resources/drive/binaries/map_000.bin";
+    // }
 
     if (frame_skip <= 0) {
         frame_skip = 1;  // Default: render every frame
@@ -478,12 +478,16 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
         //     c_step(&env);
         // }
 
+
+        char output_gif_path[256];
+        // sprintf(output_gif_path, "resources/drive/output_topdown_%d.gif", random_map_idx);
+        sprintf(output_gif_path, "resources/drive/output_topdown.gif", random_map_idx);
         // Generate both GIFs
         int gif_success_topdown = make_gif_from_frames(
             "resources/drive/frame_topdown_%03d.png",
             10 / frame_skip, // fps
             "resources/drive/palette_topdown.png",
-            "resources/drive/output_topdown.gif");
+            output_gif_path);
 
         int gif_success_agent = make_gif_from_frames(
             "resources/drive/frame_agent_%03d.png",
@@ -604,8 +608,9 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-
+    for(int i =0; i<1; i++) {
     eval_gif(map_name, show_grid, obs_only, lasers, log_trajectories, frame_skip);
+    }
     //demo();
     //performance_test();
     return 0;
