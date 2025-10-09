@@ -472,8 +472,8 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
 
         // Generate both GIFs
         char output_gif_path[256];
-        sprintf(output_gif_path, "resources/drive/output_topdown_%d.gif", random_map_idx);
-        // sprintf(output_gif_path, "resources/drive/output_topdown.gif", random_map_idx);
+        // sprintf(output_gif_path, "resources/drive/output_topdown_%d.gif", random_map_idx);
+        sprintf(output_gif_path, "resources/drive/output_topdown.gif", random_map_idx);
         // Generate both GIFs
         int gif_success_topdown = make_gif_from_frames(
             "resources/drive/frame_topdown_%03d.png",
@@ -600,10 +600,8 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-    for (int i=0; i<100; i++) {
         printf("\n");
         eval_gif(map_name, show_grid, obs_only, lasers, log_trajectories, frame_skip);
-    }
 
     //demo();
     //performance_test();
