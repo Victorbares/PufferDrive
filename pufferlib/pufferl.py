@@ -5,35 +5,36 @@
 import contextlib
 import warnings
 
+
 warnings.filterwarnings("error", category=RuntimeWarning)
 
-import os
-import sys
-import glob
+import argparse
 import ast
-import time
+import configparser
+import glob
+import importlib
+import os
 import random
 import shutil
 import subprocess
-import argparse
-import importlib
-import configparser
-from threading import Thread
+import sys
+import time
 from collections import defaultdict, deque
+from threading import Thread
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import psutil
-
 import torch
 import torch.distributed
-from torch.distributed.elastic.multiprocessing.errors import record
 import torch.utils.cpp_extension
+from torch.distributed.elastic.multiprocessing.errors import record
 
 import pufferlib
+import pufferlib.pytorch
 import pufferlib.sweep
 import pufferlib.vector
-import pufferlib.pytorch
+
 
 try:
     from pufferlib import _C
@@ -44,13 +45,15 @@ except ImportError:
 
 import rich
 import rich.traceback
-from rich.table import Table
 from rich.console import Console
+from rich.table import Table
 from rich_argparse import RichHelpFormatter
+
 
 rich.traceback.install(show_locals=False)
 
 import signal  # Aggressively exit on ctrl+c
+
 
 signal.signal(signal.SIGINT, lambda sig, frame: os._exit(0))
 
@@ -283,7 +286,7 @@ class PuffeRL:
                 action, logprob, _ = pufferlib.pytorch.sample_logits(logits)
 
                 # From params traj to continuous bicycle actions
-                
+
                 r = torch.clamp(r, -1, 1)
 
             profile("eval_copy", epoch)
@@ -504,7 +507,11 @@ class PuffeRL:
                 if model_files:
                     # Take the latest checkpoint
                     latest_cpt = max(model_files, key=os.path.getctime)
-                    bin_path = f"{model_dir}.bin"
+
+                    # Change CP -> Bin latest_cpt
+                    model_name_without_ext = os.path.splitext(os.path.basename(latest_cpt))[0]
+
+                    bin_path = os.path.join(model_dir, f"{model_name_without_ext}.bin")
 
                     # Export to .bin for rendering with raylib
                     try:
@@ -516,6 +523,7 @@ class PuffeRL:
                             vecenv=self.vecenv,
                             policy=self.uncompiled_policy,
                             path=bin_path,
+                            # silent=True,
                         )
 
                     except Exception as e:
@@ -524,9 +532,9 @@ class PuffeRL:
 
                     # Now call the C rendering function
                     try:
-                        # Create output directory for GIFs
-                        gif_output_dir = os.path.join(model_dir, "gifs")
-                        os.makedirs(gif_output_dir, exist_ok=True)
+                        # Create output directory for videos
+                        video_output_dir = os.path.join(model_dir, "videos")
+                        os.makedirs(video_output_dir, exist_ok=True)
 
                         # Copy the binary weights to the expected location
                         expected_weights_path = "resources/drive/puffer_drive_weights.bin"
@@ -549,36 +557,35 @@ class PuffeRL:
                             cmd.append("--lasers")
                         if config["show_human_logs"]:
                             cmd.append("--log-trajectories")
-                        if config["render_map"] is not None:
-                            map_path = config["render_map"]
-                            # Pick a random number between 0 and 599
-                            n = random.randint(0, 599)
-                            map_name = f"map_{n:03d}"
-                            # Format with zero-padding (3 digits)
-                            map_path = f"pufferlib/resources/drive/binaries/{map_name}.bin"
-                            if os.path.exists(map_path):
-                                cmd.extend(["--map-name", map_path])
+                        # if config["render_map"] is not None:
+                        #     map_path = config["render_map"]
+                        #     if os.path.exists(map_path):
+                        #         cmd.extend(["--map-name", map_path])
+
                         # Call C code that runs eval_gif() in subprocess
                         result = subprocess.run(
-                            cmd, cwd=os.getcwd(), capture_output=True, text=True, timeout=120, env=env
+                            cmd, cwd=os.getcwd(), text=True, timeout=120, env=env
+                        )
+                        vids_exist = os.path.exists("resources/drive/output_topdown.mp4") and os.path.exists(
+                            "resources/drive/output_agent.mp4"
                         )
 
-                        # Check if GIFs were generated successfully
-                        gifs_exist = os.path.exists("resources/drive/output_topdown.gif") and os.path.exists(
-                            "resources/drive/output_agent.gif"
-                        )
-    
-                        if result.returncode == 0 or (result.returncode == 1 and gifs_exist):
+                        # # Check if GIFs were generated successfully
+                        # gifs_exist = os.path.exists("resources/drive/output_topdown.gif") and os.path.exists(
+                        #     "resources/drive/output_agent.gif"
+                        # )
+
+                        if result.returncode == 0 or (result.returncode == 1 and vids_exist):
                             # Move both generated GIFs to the model directory
-                            gifs = [
-                                ("resources/drive/output_topdown.gif", f"{map_name}_epoch_{self.epoch:06d}_topdown.gif"), #  f"{map_name}_epoch_{self.epoch:06d}_topdown.gif")
-                                ("resources/drive/output_agent.gif", f"epoch_{self.epoch:06d}_agent.gif"),
+                            videos = [
+                                ("resources/drive/output_topdown.mp4", f"epoch_{self.epoch:06d}_topdown.mp4"),
+                                ("resources/drive/output_agent.mp4", f"epoch_{self.epoch:06d}_agent.mp4"),
                             ]
 
-                            for source_gif, target_filename in gifs:
-                                if os.path.exists(source_gif):
-                                    target_gif = os.path.join(gif_output_dir, target_filename)
-                                    shutil.move(source_gif, target_gif)
+                            for source_vid, target_filename in videos:
+                                if os.path.exists(source_vid):
+                                    target_gif = os.path.join(video_output_dir, target_filename)
+                                    shutil.move(source_vid, target_gif)
 
                                     # Log to wandb if available
                                     if hasattr(self.logger, "wandb") and self.logger.wandb:
@@ -586,12 +593,12 @@ class PuffeRL:
 
                                         view_type = "world_state" if "topdown" in target_filename else "agent_view"
                                         self.logger.wandb.log(
-                                            {f"render/{view_type}": wandb.Video(target_gif, format="gif")},
+                                            {f"render/{view_type}": wandb.Video(target_gif, format="mp4")},
                                             step=self.global_step,
                                         )
 
                                 else:
-                                    print(f"GIF generation completed but {source_gif} not found")
+                                    print(f"Video generation completed but {source_vid} not found")
 
                         else:
                             print(f"C rendering failed with exit code {result.returncode}: {result.stderr}")
@@ -1111,7 +1118,7 @@ def train(env_name, args=None, vecenv=None, policy=None, logger=None):
 def eval(env_name, args=None, vecenv=None, policy=None):
     args = args or load_config(env_name)
     backend = args["vec"]["backend"]
-    args['env']['resample_frequency'] = 91
+    args["env"]["resample_frequency"] = 91
     if backend != "PufferEnv":
         backend = "Serial"
 
@@ -1144,10 +1151,11 @@ def eval(env_name, args=None, vecenv=None, policy=None):
         elif driver.render_mode == "rgb_array":
             pass
             import cv2
+
             render = cv2.cvtColor(render, cv2.COLOR_RGB2BGR)
-            cv2.imshow('frame', render)
+            cv2.imshow("frame", render)
             cv2.waitKey(1)
-            time.sleep(1/args['fps'])
+            time.sleep(1 / args["fps"])
 
         with torch.no_grad():
             ob = torch.as_tensor(ob).to(device)
@@ -1170,7 +1178,7 @@ def eval(env_name, args=None, vecenv=None, policy=None):
 def eval_pipeline(env_name, args=None, vecenv=None, policy=None, num_scenarios_loops=10):
     args = args or load_config(env_name)
     backend = args["vec"]["backend"]
-    args['env']['resample_frequency'] = 91 # Change episodes every 91 steps
+    args["env"]["resample_frequency"] = 91  # Change episodes every 91 steps
     if backend != "PufferEnv":
         backend = "Serial"
 
@@ -1191,7 +1199,7 @@ def eval_pipeline(env_name, args=None, vecenv=None, policy=None, num_scenarios_l
     global_infos = {}
 
     for scenario in range(num_scenarios_loops):
-        print(f"Scenario {scenario+1}/{num_scenarios_loops}")
+        print(f"Scenario {scenario + 1}/{num_scenarios_loops}")
         ob, _ = vecenv.reset()
         for ts in range(91):
             with torch.no_grad():
@@ -1210,10 +1218,7 @@ def eval_pipeline(env_name, args=None, vecenv=None, policy=None, num_scenarios_l
                         global_infos[k] = []
                     global_infos[k].append(v)
     # === Final averages ===
-    avg_infos = {
-    k: (np.sum(v) if k == "num_scenarios" else np.mean(v))
-    for k, v in global_infos.items()    
-    }
+    avg_infos = {k: (np.sum(v) if k == "num_scenarios" else np.mean(v)) for k, v in global_infos.items()}
     # === Export to CSV ===
     df = pd.DataFrame(list(avg_infos.items()), columns=["Metric", "Average"])
     eval_folder = f"benchmark/{os.path.basename(args['load_model_path'])}"
@@ -1223,6 +1228,7 @@ def eval_pipeline(env_name, args=None, vecenv=None, policy=None, num_scenarios_l
 
     print(f"\n✅ Results exported to {csv_path}")
     print(df.to_string(index=False))  # pretty console print
+
 
 def sweep(args=None, env_name=None):
     args = args or load_config(env_name)
@@ -1266,7 +1272,7 @@ def profile(args=None, env_name=None, vecenv=None, policy=None):
     train_config = dict(**args["train"], env=args["env_name"], tag=args["tag"])
     pufferl = PuffeRL(train_config, vecenv, policy, neptune=args["neptune"], wandb=args["wandb"])
 
-    from torch.profiler import profile, record_function, ProfilerActivity
+    from torch.profiler import ProfilerActivity, profile, record_function
 
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
         with record_function("model_inference"):
@@ -1278,7 +1284,7 @@ def profile(args=None, env_name=None, vecenv=None, policy=None):
     prof.export_chrome_trace("trace.json")
 
 
-def export(args=None, env_name=None, vecenv=None, policy=None, path=None):
+def export(args=None, env_name=None, vecenv=None, policy=None, path=None, silent=False):
     args = args or load_config(env_name)
     vecenv = vecenv or load_env(env_name, args)
     policy = policy or load_policy(args, vecenv)
@@ -1286,7 +1292,8 @@ def export(args=None, env_name=None, vecenv=None, policy=None, path=None):
     weights = []
     for name, param in policy.named_parameters():
         weights.append(param.data.cpu().numpy().flatten())
-        print(name, param.shape, param.data.cpu().numpy().ravel()[0])
+        if not silent:
+            print(name, param.shape, param.data.cpu().numpy().ravel()[0])
 
     weights = np.concatenate(weights)
     if path is None:
@@ -1294,7 +1301,8 @@ def export(args=None, env_name=None, vecenv=None, policy=None, path=None):
 
     weights.tofile(path)
 
-    print(f"Saved {len(weights)} weights to {path}")
+    if not silent:
+        print(f"Saved {len(weights)} weights to {path}")
 
 
 def ensure_drive_binary():
@@ -1470,7 +1478,7 @@ def main():
         train(env_name=env_name)
     elif mode == "eval":
         eval(env_name=env_name)
-    elif mode == 'eval_pipeline':
+    elif mode == "eval_pipeline":
         eval_pipeline(env_name=env_name, num_scenarios_loops=1)
     elif mode == "sweep":
         sweep(env_name=env_name)
