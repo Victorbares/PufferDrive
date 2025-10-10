@@ -1557,8 +1557,8 @@ void c_step(Drive* env){
             }
         }
 
-        float distance_expert_reward = -0.00;
-        if (distance_to_expert_min > 1.5f) {
+        float distance_expert_reward = -0.008;
+        if (distance_to_expert_min > 0.75f) {
             env->rewards[i] += distance_expert_reward;
             env->logs[i].episode_return += distance_expert_reward;
         }
@@ -1699,12 +1699,13 @@ void c_traj(Drive* env, int agent_idx, float* trajectory_params, float (*waypoin
     coeffs_longitudinal[1] = speed;
     coeffs_longitudinal[2] = scaled_control_points[0];
     coeffs_lateral[0] = 0.0f;
-    coeffs_lateral[1] = scaled_control_points[1];
+    coeffs_lateral[1] = 0.0f;
     coeffs_lateral[2] = scaled_control_points[2];
 
     // float max_longi_acc = 3 - 1.0 * fabs(coeffs_lateral[2]);
     // coeffs_longitudinal[2] = clip_value(scaled_control_points[0], -max_longi_acc, max_longi_acc);
-
+    // coeffs_longitudinal[2] = coeffs_longitudinal[2] - fabs(scaled_control_points[2]);
+    
     // 2. Generate waypoints using polynomial trajectory generation (with current agents position)
     for (int i = 0; i < num_waypoints; ++i) {
         float t = TIME_DELTA * (i + 1);

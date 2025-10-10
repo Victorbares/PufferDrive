@@ -342,7 +342,7 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
     //     map_name = "resources/drive/binaries/map_000.bin";
     // }
     srand(time(NULL));
-    int random_map_idx = rand() % 1000;
+    int random_map_idx = rand() % 600;
     char random_map_name[256];
     snprintf(random_map_name, sizeof(random_map_name), "resources/drive/binaries/map_%03d.bin", random_map_idx);
     if (map_name == NULL) {
@@ -422,6 +422,13 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
                 // FIXME create a function that handle traj
                 //  Handle trajectory actions
                 float (*trajectory_params)[3] = (float (*)[3])env.actions;
+                // printf("num agents: %d\n", env.active_agent_count);
+                // for (int i = 0; i < env.active_agent_count; i++) {
+                //     printf("C2 LONGI: %f\n", trajectory_params[i][0] * 2);
+                //     printf("C1 LAT: %f\n", trajectory_params[i][1] * 2);
+                //     printf("C2 LAT: %f\n", trajectory_params[i][2] * 5);
+                // }
+
 
                 // Buffers for waypoints and low-level actions
                 float (*traj_waypoints)[num_waypoints][4] = (float(*)[num_waypoints][4])env.trajectory_waypoints;
@@ -472,8 +479,8 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
 
         // Generate both GIFs
         char output_gif_path[256];
-        sprintf(output_gif_path, "resources/drive/output_topdown_%d.gif", random_map_idx);
-        // sprintf(output_gif_path, "resources/drive/output_topdown.gif", random_map_idx);
+        // sprintf(output_gif_path, "resources/drive/output_topdown_%d.gif", random_map_idx);
+        sprintf(output_gif_path, "resources/drive/output_topdown.gif", random_map_idx);
         // Generate both GIFs
         int gif_success_topdown = make_gif_from_frames(
             "resources/drive/frame_topdown_%03d.png",
@@ -600,7 +607,7 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-    for (int i=0; i<100; i++) {
+    for (int i=0; i<1; i++) {
         printf("\n");
         eval_gif(map_name, show_grid, obs_only, lasers, log_trajectories, frame_skip);
     }
