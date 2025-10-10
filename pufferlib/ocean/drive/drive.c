@@ -510,7 +510,7 @@ static int make_gif_from_frames(const char *pattern, int fps,
     return 0;
 }
 
-int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int log_trajectories, int frame_skip, float goal_radius) {
+int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int log_trajectories, int frame_skip, float goal_radius, bool agent_view) {
 
     // Use default if no map provided
 
@@ -659,36 +659,42 @@ int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int 
         c_reset(&env);
     CloseVideo(&topdown_recorder);
 
-    VideoRecorder agent_recorder;
-    if (!OpenVideo(&agent_recorder, "resources/drive/output_agent.mp4", img_width, img_height)) {
-        CloseWindow();
-        return -1;
-    }
 
-    for(int i = 0; i < frame_count; i++) {
+    if (agent_view) {
 
-        if (i % frame_skip == 0) {
-            renderAgentView(&env, client, map_height, obs_only, lasers, show_grid);
-            WriteFrame(&agent_recorder, img_width, img_height);
-            rendered_frames++;
+            printf("Recording agent view...\n");
+            VideoRecorder agent_recorder;
+        if (!OpenVideo(&agent_recorder, "resources/drive/output_agent.mp4", img_width, img_height)) {
+            CloseWindow();
+            return -1;
+        }
+
+        for(int i = 0; i < frame_count; i++) {
+
+            if (i % frame_skip == 0) {
+                renderAgentView(&env, client, map_height, obs_only, lasers, show_grid);
+                WriteFrame(&agent_recorder, img_width, img_height);
+                rendered_frames++;
+                }
+
+                int (*actions)[12] = (int(*)[12])env.actions;
+                forward(net, env.observations, env.actions);
+                c_step(&env);
             }
 
-            int (*actions)[12] = (int(*)[12])env.actions;
-            forward(net, env.observations, env.actions);
-            c_step(&env);
-        }
+
+
+        // Close video recorders
+        CloseVideo(&agent_recorder);
+        CloseWindow();
+    }
 
     double endTime = GetTime();
     double elapsedTime = endTime - startTime;
     double writeFPS = (elapsedTime > 0) ? rendered_frames / elapsedTime : 0;
 
     printf("Wrote %d frames in %.2f seconds (%.2f FPS)\n",
-           rendered_frames, elapsedTime, writeFPS);
-
-    // Close video recorders
-    CloseVideo(&agent_recorder);
-    CloseWindow();
-
+        rendered_frames, elapsedTime, writeFPS);
     // Clean up resources
     free(client);
     free_allocated(&env);
@@ -781,7 +787,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    eval_gif(map_name, show_grid, obs_only, lasers, log_trajectories, frame_skip, goal_radius);
+    eval_gif(map_name, show_grid, obs_only, lasers, log_trajectories, frame_skip, goal_radius, false);
     //demo();
     //performance_test();
     return 0;
