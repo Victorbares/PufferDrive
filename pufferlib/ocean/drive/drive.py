@@ -29,6 +29,7 @@ class Drive(pufferlib.PufferEnv):
         num_maps=100,
         num_agents=512,
         action_type="discrete",
+        controller_type="tp",
         buf=None,
         seed=1,
     ):
@@ -48,16 +49,25 @@ class Drive(pufferlib.PufferEnv):
         self.num_obs = 7 + 63 * 7 + 200 * 7
         self.single_observation_space = gymnasium.spaces.Box(low=-1, high=1, shape=(self.num_obs,), dtype=np.float32)
         # The policy now outputs 12 parameters for the polynomial trajectory
-        self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(12,), dtype=np.float32)
+        self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
 
         # The C backend still expects 2 continuous low-level actions
         self._action_type_flag = 0
+        self._controller_type_flag = 0
         if action_type == "discrete":
             self._action_type_flag = 0
         elif action_type == "continuous":
             self._action_type_flag = 1
         elif action_type == "trajectory":
             self._action_type_flag = 2
+            if controller_type == "classic":
+                self._controller_type_flag = 0
+            elif controller_type == "invertible":
+                self._controller_type_flag = 1
+            elif controller_type == "tp":
+                self._controller_type_flag = 2
+            else:
+                raise ValueError("action_type must be 'tp', 'dynamics', or 'nekfeu'")
         else:
             raise ValueError("action_type must be 'discrete', 'continuous' or 'trajectory'")
 
@@ -93,6 +103,7 @@ class Drive(pufferlib.PufferEnv):
                 self.truncations[cur:nxt],
                 seed,
                 action_type=self._action_type_flag,
+                controller_type=self._controller_type_flag,
                 dreaming_steps=self.dreaming_steps,
                 human_agent_idx=human_agent_idx,
                 reward_vehicle_collision=reward_vehicle_collision,
@@ -165,6 +176,7 @@ class Drive(pufferlib.PufferEnv):
                         self.truncations[cur:nxt],
                         seed,
                         action_type=self._action_type_flag,
+                        controller_type=self._controller_type_flag,
                         dreaming_steps=self.dreaming_steps,
                         human_agent_idx=self.human_agent_idx,
                         reward_vehicle_collision=self.reward_vehicle_collision,

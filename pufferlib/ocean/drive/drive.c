@@ -68,7 +68,7 @@ DriveNet* init_drivenet(Weights* weights, int num_agents) {
     net->gelu = make_gelu(num_agents, 3*input_size);
     net->shared_embedding = make_linear(weights, num_agents, input_size*3, hidden_size);
     net->relu = make_relu(num_agents, hidden_size);
-    net->actor = make_linear(weights, num_agents, hidden_size, 24);
+    net->actor = make_linear(weights, num_agents, hidden_size, 6);
     net->value_fn = make_linear(weights, num_agents, hidden_size, 1);
     net->lstm = make_lstm(weights, num_agents, hidden_size, 256);
     memset(net->lstm->state_h, 0, num_agents*256*sizeof(float));
@@ -224,14 +224,14 @@ void forward(DriveNet* net, float* observations, float* actions) {
     linear(net->value_fn, net->lstm->state_h);
     // Split actor output into loc and scale, apply softplus to scale
     for (int b = 0; b < net->num_agents; b++) {
-        float* params = &net->actor->output[b * 24];
+        float* params = &net->actor->output[b * 6];
         float* loc = params;
-        float* scale = params + 12;
-        for (int i = 0; i < 12; i++) {
+        float* scale = params + 3;
+        for (int i = 0; i < 3; i++) {
             float std = logf(1.0f + expf(scale[i])) + 1e-4f; // softplus
             // For deterministic: actions[b*12 + i] = loc[i];
             // For stochastic: sample from Normal(loc[i], std)
-            actions[b*12 + i] = loc[i]; // Use mean for now
+            actions[b * 3 + i] = loc[i]; // Use mean for now
             // Optionally, you could also output std if needed
         }
     }
@@ -363,6 +363,7 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
         .map_name = map_name,
         .spawn_immunity_timer = 50,
         .action_type = 2,
+        .controller_type = 2, // tp 2, classic 0, invertible 1
         .dreaming_steps = 10};
 
     allocate(&env);
@@ -412,7 +413,7 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
                 rendered_frames++;
             }
 
-            float (*actions)[12] = (float (*)[12])env.actions;
+            float (*actions)[3] = (float (*)[3])env.actions;
             forward(net, env.observations, env.actions);
             int num_waypoints = env.dreaming_steps;
 
@@ -420,25 +421,32 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
             {
                 // FIXME create a function that handle traj
                 //  Handle trajectory actions
-                float (*trajectory_params)[12] = (float (*)[12])env.actions;
+                float (*trajectory_params)[3] = (float (*)[3])env.actions;
 
                 // Buffers for waypoints and low-level actions
-                float (*traj_waypoints)[num_waypoints][4] = (float(*)[num_waypoints][4])env.trajectory_waypoints;
+                float (*traj_waypoints)[num_waypoints][7] = (float(*)[num_waypoints][7])env.trajectory_waypoints;
 
-                float low_level_actions[env.active_agent_count][num_waypoints][2];
+                float controlled_actions[env.active_agent_count][num_waypoints][2];
 
                 // Step 2: Generate trajectory and control actions for all agents
                 for (int i = 0; i < env.active_agent_count; i++) {
                     int agent_idx = env.active_agent_indices[i];
 
                     // 1. Get trajectory from local poly coeffs predictions to global waypoints
-                    c_traj(&env, agent_idx, trajectory_params[i], traj_waypoints[i], num_waypoints);
-
-                    // 2. Get the headings and the curvature of each waypoint
-                    fill_headings_and_curvature(&env, traj_waypoints[i], num_waypoints);
+                    c_get_trajectories(&env, agent_idx, trajectory_params[i], traj_waypoints[i], num_waypoints);
                     
-                    // If controlled
-                    c_control(&env, agent_idx, traj_waypoints[i], low_level_actions[i], num_waypoints,0);
+                    // If controlled dynamics --> get control actions from trajectory
+                    if (env.controller_type == 0)
+                    {
+                        c_get_control_actions_classic(&env, agent_idx, traj_waypoints[i], controlled_actions[i], num_waypoints);
+                    }
+                    else if (env.controller_type == 1)
+                    {
+                        c_get_control_actions_invertible(&env, agent_idx, traj_waypoints[i], controlled_actions[i], num_waypoints);
+                    }
+                    else{
+                        /** TP mode - do not need control actions */
+                    }
 
                     // fill dream_traj for each dream_step
                     for (int d = 0; d < num_waypoints; d++)
@@ -449,13 +457,16 @@ void eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int
                     }
                 }
                 // If controlled - required to apply dynamics with controlled
-                for (int ts = 0; ts < 1; ts++)
+                if ((env.controller_type == 0) || (env.controller_type == 1))
                 {
-                    float (*ctrl_actions_f)[2] = (float (*)[2])env.ctrl_trajectory_actions;
-                    for (int i = 0; i < env.active_agent_count; i++)
+                    for (int ts = 0; ts < 1; ts++)
                     {
-                        ctrl_actions_f[i][0] = low_level_actions[i][ts][0]; // accel
-                        ctrl_actions_f[i][1] = low_level_actions[i][ts][1]; // steer
+                        float (*ctrl_actions_f)[2] = (float (*)[2])env.ctrl_trajectory_actions;
+                        for (int i = 0; i < env.active_agent_count; i++)
+                        {
+                            ctrl_actions_f[i][0] = controlled_actions[i][ts][0]; // accel
+                            ctrl_actions_f[i][1] = controlled_actions[i][ts][1]; // steer
+                        }
                     }
                 }
             }
