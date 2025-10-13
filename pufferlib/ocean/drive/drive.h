@@ -1724,7 +1724,7 @@ void c_reset(Drive* env){
     compute_observations(env);
 }
 
-void respawn_agent(Drive* env, int agent_idx){
+void respawn_agent(Drive* env, int i, int agent_idx){
     env->entities[agent_idx].x = env->entities[agent_idx].traj_x[0];
     env->entities[agent_idx].y = env->entities[agent_idx].traj_y[0];
     env->entities[agent_idx].heading = env->entities[agent_idx].traj_heading[0];
@@ -1740,6 +1740,8 @@ void respawn_agent(Drive* env, int agent_idx){
     env->entities[agent_idx].cumulative_displacement = 0.0f;
     env->entities[agent_idx].displacement_sample_count = 0;
     env->entities[agent_idx].respawn_timestep = env->timestep;
+
+    env->previous_distance_to_goal[i] = 10000.0f;
 }
 
 void c_step(Drive* env){
@@ -1894,12 +1896,12 @@ void c_step(Drive* env){
         {
             bool respawn_if_coll_in_active_mode = (collision_state > 0) && (!env->dreaming_mode);
             if((reached_goal) || (respawn_if_coll_in_active_mode)){
-                respawn_agent(env, agent_idx);
+                respawn_agent(env, i, agent_idx);
             }
         }
         else{
             if(reached_goal){
-                respawn_agent(env, agent_idx);
+                respawn_agent(env, i, agent_idx);
             }
         }
     }
