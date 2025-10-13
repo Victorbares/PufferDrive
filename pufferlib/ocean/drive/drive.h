@@ -340,7 +340,7 @@ static inline void c_get_control_actions_invertible(Drive* env, int agent_idx, f
         float to_target_len = hypotf(dx, dy);
         float cos_theta = dot / to_target_len;
         // If target is behind (>45° off forward direction)
-        if (cos_theta < cosf(M_PI / 4.0)) {
+        if (cos_theta < cosf(M_PI / 3.0)) {
             controlled_actions[i][0] = -4.0;
             controlled_actions[i][1] = 0.0;
         }
@@ -1544,7 +1544,7 @@ void move_dynamics_invertible(Drive* env, int action_idx, int agent_idx){
 }
 
 
-void move_dynamics_tp(Drive* env, int action_idx, int agent_idx, float (*waypoints)[4]){
+void move_dynamics_tp(Drive* env, int action_idx, int agent_idx, float (*waypoints)[7]){
     Entity* agent = &env->entities[agent_idx];
     // Current state
     float curr_x = agent->x;
@@ -1828,7 +1828,7 @@ void c_step(Drive* env){
             }
         }
         float distance_expert_reward = -0.008;
-        if (distance_to_expert_min > 0.75f) {
+        if (distance_to_expert_min > 1.0f) {
             env->rewards[i] += distance_expert_reward;
             env->logs[i].episode_return += distance_expert_reward;
         }

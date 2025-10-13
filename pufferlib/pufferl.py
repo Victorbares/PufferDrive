@@ -523,7 +523,7 @@ class PuffeRL:
                             vecenv=self.vecenv,
                             policy=self.uncompiled_policy,
                             path=bin_path,
-                            # silent=True,
+                            silent=True,
                         )
 
                     except Exception as e:
@@ -564,7 +564,7 @@ class PuffeRL:
 
                         # Call C code that runs eval_gif() in subprocess
                         result = subprocess.run(
-                            cmd, cwd=os.getcwd(), text=True, timeout=120, env=env
+                            cmd, cwd=os.getcwd(),capture_output= True, text=True, timeout=120, env=env
                         )
                         vids_exist = os.path.exists("resources/drive/output_topdown.mp4") and os.path.exists(
                             "resources/drive/output_agent.mp4"
