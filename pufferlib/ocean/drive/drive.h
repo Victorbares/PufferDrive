@@ -333,7 +333,7 @@ static inline void c_get_control_actions_invertible(Drive* env, int agent_idx, f
         // Clip the values to the vehicle's physical limits
         float clipped_accel = clip_value(desired_accel, -MAX_ACCEL, MAX_ACCEL);
         float clipped_steering = clip_value(desired_steering, -MAX_STEERING, MAX_STEERING);
-        
+
         /** Full deceleration and 0 steering if trajectory predicted not in 45° cone **/
         float forward_x = cosf(sim_heading);
         float forward_y = sinf(sim_heading);
@@ -350,7 +350,7 @@ static inline void c_get_control_actions_invertible(Drive* env, int agent_idx, f
         else{
             controlled_actions[i][0] = clipped_accel;
             controlled_actions[i][1] = clipped_steering;
-            
+
         }
 
         // --- Simulate one step forward to get the state for the next waypoint ---
@@ -1418,8 +1418,6 @@ void move_dynamics(Drive* env, int action_idx, int agent_idx){
         int (*action_array)[2] = (int(*)[2])env->actions;
         int acceleration_index = action_array[action_idx][0];
         int steering_index = action_array[action_idx][1];
-        float acceleration = ACCELERATION_VALUES[acceleration_index];
-        float steering = STEERING_VALUES[steering_index];
 
         acceleration = ACCELERATION_VALUES[acceleration_index];
         steering = STEERING_VALUES[steering_index];
@@ -1823,7 +1821,7 @@ void c_step(Drive* env){
                 env->entities[agent_idx].collided_before_goal = 1;
             }
         }
-        
+
         /** Log traj distance reward **/
         float distance_to_expert_min = 1e6;
         for (int i = 0; i< TRAJECTORY_LENGTH; i++){
@@ -1860,7 +1858,7 @@ void c_step(Drive* env){
             env->entities[agent_idx].reached_goal_this_episode = 1;
             env->entities[agent_idx].metrics_array[REACHED_GOAL_IDX] = 1.0f;
 	    }
-        
+
         /** Progression reward **/
         float progression_reward = 0.0f;
         if ((env->previous_distance_to_goal[i] - distance_to_goal) > 0.0f)
