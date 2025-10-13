@@ -557,11 +557,13 @@ class PuffeRL:
                             cmd.append("--lasers")
                         if config["show_human_logs"]:
                             cmd.append("--log-trajectories")
-                        # if config["render_map"] is not None:
-                        #     map_path = config["render_map"]
-                        #     if os.path.exists(map_path):
-                        #         cmd.extend(["--map-name", map_path])
 
+                        if self.vecenv.driver_env.goal_radius is not None:
+                            cmd.extend(["--goal-radius", str(self.vecenv.driver_env.goal_radius)])
+                        if config["render_map"] is not None:
+                            map_path = config["render_map"]
+                            if os.path.exists(map_path):
+                                cmd.extend(["--map-name", map_path])
                         # Call C code that runs eval_gif() in subprocess
                         result = subprocess.run(
                             cmd, cwd=os.getcwd(),capture_output= True, text=True, timeout=120, env=env
@@ -570,13 +572,12 @@ class PuffeRL:
                             "resources/drive/output_agent.mp4"
                         )
 
-                        # # Check if GIFs were generated successfully
-                        # gifs_exist = os.path.exists("resources/drive/output_topdown.gif") and os.path.exists(
-                        #     "resources/drive/output_agent.gif"
-                        # )
+                        vids_exist = os.path.exists("resources/drive/output_topdown.mp4") and os.path.exists(
+                            "resources/drive/output_agent.mp4"
+                        )
 
                         if result.returncode == 0 or (result.returncode == 1 and vids_exist):
-                            # Move both generated GIFs to the model directory
+                            # Move both generated videos to the model directory
                             videos = [
                                 ("resources/drive/output_topdown.mp4", f"epoch_{self.epoch:06d}_topdown.mp4"),
                                 ("resources/drive/output_agent.mp4", f"epoch_{self.epoch:06d}_agent.mp4"),

@@ -67,7 +67,7 @@ void CloseVideo(VideoRecorder *recorder) {
     waitpid(recorder->pid, NULL, 0);
 }
 
-void renderTopDownView(Drive* env, Client* client, int map_height, int obs, int lasers, int trajectories, int frame_count, float* path, int log_trajectories, int show_grid,float (*dream_traj)[2]) {
+void renderTopDownView(Drive* env, Client* client, int map_height, int obs, int lasers, int trajectories, int frame_count, float* path, int log_trajectories, int show_grid) {
 
     BeginDrawing();
 
@@ -117,24 +117,6 @@ void renderTopDownView(Drive* env, Client* client, int map_height, int obs, int 
     if(trajectories){
         for(int i=0; i<frame_count; i++){
             DrawSphere((Vector3){path[i*2], path[i*2 +1], 0.8f}, 0.5f, YELLOW);
-        }
-    }
-
-    // Draw dreamed trajectories
-    if(env->action_type==2){ //2 = dreaming²
-        for(int i=0; i<env->active_agent_count;i++){
-            int idx = env->active_agent_indices[i];
-            for(int j=0; j<env->dreaming_steps-1;j++){
-
-                float x = dream_traj[i*env->dreaming_steps + j][0];
-                float y = dream_traj[i*env->dreaming_steps + j][1];
-                //print x,y
-                // printf("Waypoint: (%.2f, %.2f)\n", x, y);
-
-                // float valid = env->entities[idx].dream_traj_valid[j];
-                // if(!valid) continue;
-                DrawSphere((Vector3){x,y,0.5f}, 0.3f, Fade(ORANGE, 0.6f));
-            }
         }
     }
 
@@ -510,7 +492,7 @@ static int make_gif_from_frames(const char *pattern, int fps,
     return 0;
 }
 
-int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int log_trajectories, int frame_skip, float goal_radius, bool agent_view) {
+int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int log_trajectories, int frame_skip, float goal_radius) {
 
     // Use default if no map provided
     // if (map_name == NULL)
@@ -529,6 +511,13 @@ int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int 
         frame_skip = 1;  // Default: render every frame
     }
 
+    // Check if map file exists
+    FILE* map_file = fopen(map_name, "rb");
+    if (map_file == NULL) {
+        RAISE_FILE_ERROR(map_name);
+    }
+    fclose(map_file);
+
     // Make env
     // Change in fonction of action type
     Drive env = {
@@ -544,15 +533,13 @@ int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int 
         .dreaming_steps = 10};
 
     allocate(&env);
-    // set which vehicle to focus on for obs mode
+
+    // Set which vehicle to focus on for obs mode
     env.human_agent_idx = 0;
+
     c_reset(&env);
-
-    /*if (env.client == NULL) {
-        env.client = make_client(&env);
-    }*/
-
-    Client *client = (Client *)calloc(1, sizeof(Client));
+    // Make client for rendering
+    Client* client = (Client*)calloc(1, sizeof(Client));
     env.client = client;
 
     SetConfigFlags(FLAG_WINDOW_HIDDEN);
@@ -577,8 +564,6 @@ int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int 
 
     int frame_count = 91;
     char filename[256];
-    int rollout = 1;
-    int rollout_trajectory_snapshot = 0;
     int log_trajectory = log_trajectories;
 
     printf("Starting video recording...\n");
@@ -671,45 +656,39 @@ int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int 
     }
 
     // Reset environment for agent view
-        c_reset(&env);
+    c_reset(&env);
     CloseVideo(&topdown_recorder);
 
+    VideoRecorder agent_recorder;
+    if (!OpenVideo(&agent_recorder, "resources/drive/output_agent.mp4", img_width, img_height)) {
+        CloseWindow();
+        return -1;
+    }
 
-    if (agent_view) {
+    for(int i = 0; i < frame_count; i++) {
 
-            printf("Recording agent view...\n");
-            VideoRecorder agent_recorder;
-        if (!OpenVideo(&agent_recorder, "resources/drive/output_agent.mp4", img_width, img_height)) {
-            CloseWindow();
-            return -1;
+        if (i % frame_skip == 0) {
+            renderAgentView(&env, client, map_height, obs_only, lasers, show_grid);
+            WriteFrame(&agent_recorder, img_width, img_height);
+            rendered_frames++;
         }
-
-        for(int i = 0; i < frame_count; i++) {
-
-            if (i % frame_skip == 0) {
-                renderAgentView(&env, client, map_height, obs_only, lasers, show_grid);
-                WriteFrame(&agent_recorder, img_width, img_height);
-                rendered_frames++;
-                }
 
                 int (*actions)[12] = (int(*)[12])env.actions;
                 forward(net, env.observations, env.actions);
                 c_step(&env);
             }
 
-
-
-        // Close video recorders
-        CloseVideo(&agent_recorder);
-        CloseWindow();
-    }
-
     double endTime = GetTime();
     double elapsedTime = endTime - startTime;
     double writeFPS = (elapsedTime > 0) ? rendered_frames / elapsedTime : 0;
 
     printf("Wrote %d frames in %.2f seconds (%.2f FPS)\n",
-        rendered_frames, elapsedTime, writeFPS);
+           rendered_frames, elapsedTime, writeFPS);
+
+    // Close video recorders
+    CloseVideo(&agent_recorder);
+    CloseWindow();
+
     // Clean up resources
     free(client);
     free_allocated(&env);
@@ -723,7 +702,7 @@ void performance_test() {
     Drive env = {
         .dynamics_model = CLASSIC,
         .human_agent_idx = 0,
-	    .map_name = "resources/drive/binaries/map_942.bin"
+	    .map_name = "resources/drive/binaries/map_000.bin"
     };
     clock_t start_time, end_time;
     double cpu_time_used;
@@ -803,7 +782,7 @@ int main(int argc, char* argv[]) {
     }
     for (int i=0; i<1; i++) {
         printf("\n");
-        eval_gif(map_name, show_grid, obs_only, lasers, log_trajectories, frame_skip, goal_radius, false);
+        eval_gif(map_name, show_grid, obs_only, lasers, log_trajectories, frame_skip, goal_radius);
     }
 
     //demo();
