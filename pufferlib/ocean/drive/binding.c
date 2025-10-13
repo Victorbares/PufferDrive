@@ -151,6 +151,9 @@ static int my_init(Env* env, PyObject* args, PyObject* kwargs) {
     env->reward_goal_post_respawn = conf.reward_goal_post_respawn;
     env->reward_vehicle_collision_post_respawn = conf.reward_vehicle_collision_post_respawn;
     env->reward_ade = conf.reward_ade;
+    env->reward_progression = conf.reward_progression;
+    env->reward_log_distance = conf.reward_log_distance;
+    env->reward_goal_reached = conf.reward_goal_reached;
     env->goal_radius = conf.goal_radius;
     env->spawn_immunity_timer = conf.spawn_immunity_timer;
     int map_id = unpack(kwargs, "map_id");

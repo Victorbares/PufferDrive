@@ -5,9 +5,6 @@ import os
 import struct
 from copy import deepcopy
 
-import gymnasium
-import numpy as np
-
 import pufferlib
 from pufferlib.ocean.drive import binding
 
@@ -25,6 +22,9 @@ class Drive(pufferlib.PufferEnv):
         reward_goal_post_respawn=0.5,
         reward_vehicle_collision_post_respawn=-0.25,
         reward_ade=0.0,
+        reward_progression=0.0,
+        reward_log_distance=0.0,
+        reward_goal_reached=1.0,
         goal_radius=2.0,
         spawn_immunity_timer=30,
         dreaming_steps=10,
@@ -32,7 +32,7 @@ class Drive(pufferlib.PufferEnv):
         num_maps=100,
         num_agents=512,
         action_type="discrete",
-        controller_type="tp",
+        controller_type="classic",
         buf=None,
         seed=1,
     ):
@@ -46,6 +46,9 @@ class Drive(pufferlib.PufferEnv):
         self.reward_vehicle_collision_post_respawn = reward_vehicle_collision_post_respawn
         self.goal_radius = goal_radius
         self.reward_ade = reward_ade
+        self.reward_progression = reward_progression
+        self.reward_log_distance = reward_log_distance
+        self.reward_goal_reached = reward_goal_reached
         self.spawn_immunity_timer = spawn_immunity_timer
         self.human_agent_idx = human_agent_idx
         self.dreaming_steps = dreaming_steps
@@ -116,6 +119,9 @@ class Drive(pufferlib.PufferEnv):
                 reward_goal_post_respawn=reward_goal_post_respawn,
                 reward_vehicle_collision_post_respawn=reward_vehicle_collision_post_respawn,
                 reward_ade=reward_ade,
+                reward_progression=reward_progression,
+                reward_log_distance=reward_log_distance,
+                reward_goal_reached=reward_goal_reached,
                 goal_radius=goal_radius,
                 spawn_immunity_timer=spawn_immunity_timer,
                 map_id=map_ids[i],
@@ -137,25 +143,14 @@ class Drive(pufferlib.PufferEnv):
 
         if self._action_type_flag == 2:
             # --- Dreaming Process ---
-
-            # 1. Dream step --> returns sum of rewards over the dreaming steps for all agents
             self.actions[:] = actions
             binding.vec_dream_step(self.c_envs, self.dreaming_steps)  # Dreaming steps ahead
             dreaming_reward = deepcopy(self.rewards)
 
-            # # 4. Perform a single "real" step using the controls for the first waypoint
-            # # TODO - first step already done in vec_dream_step --> directly take it instead of recomputing
-            # self.actions[:] = actions
-            # binding.vec_dream_step(self.c_envs, 1)  # Perform a single real step
-            # binding.vec_step(self.c_envs)
-
-            # # Replace reward by the dreaming reward
-            # self.rewards = dreaming_reward
         else:
             # Control predictions - continuous or discrete
             self.actions[:] = actions
             binding.vec_step(self.c_envs)
-
         self.tick += 1
         info = []
         if self.tick % self.report_interval == 0:
@@ -190,6 +185,9 @@ class Drive(pufferlib.PufferEnv):
                         reward_goal_post_respawn=self.reward_goal_post_respawn,
                         reward_vehicle_collision_post_respawn=self.reward_vehicle_collision_post_respawn,
                         reward_ade=self.reward_ade,
+                        reward_progression=self.reward_progression,
+                        reward_log_distance=self.reward_log_distance,
+                        reward_goal_reached=self.reward_goal_reached,
                         goal_radius=self.goal_radius,
                         spawn_immunity_timer=self.spawn_immunity_timer,
                         map_id=map_ids[i],

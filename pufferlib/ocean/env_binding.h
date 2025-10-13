@@ -738,6 +738,9 @@ typedef struct
     float reward_goal_post_respawn;
     float reward_vehicle_collision_post_respawn;
     float reward_ade;
+    float reward_progression;
+    float reward_log_distance;
+    float reward_goal_reached;
     float goal_radius;
     int spawn_immunity_timer;
 } env_init_config;
@@ -766,6 +769,12 @@ static int handler(
         env_config->reward_vehicle_collision_post_respawn = atof(value);
     } else if (MATCH("env", "reward_ade")) {
         env_config->reward_ade = atof(value);
+    } else if (MATCH("env", "reward_progression")) {
+        env_config->reward_progression = atof(value);
+    } else if (MATCH("env", "reward_log_distance")) {
+        env_config->reward_log_distance = atof(value);
+    } else if (MATCH("env", "reward_goal_reached")) {
+        env_config->reward_goal_reached = atof(value);
     } else if (MATCH("env", "spawn_immunity_timer")) {
         env_config->spawn_immunity_timer = atoi(value);
     } else if (MATCH("env", "goal_radius")) {

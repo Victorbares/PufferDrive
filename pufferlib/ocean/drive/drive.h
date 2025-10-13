@@ -209,7 +209,7 @@ float compute_displacement_error(Entity* agent, int timestep) {
 struct Drive {
     Client* client;
     float* observations;
-    void* actions; // int32 for discrete, float32 for continuous
+    float* actions; // int32 for discrete, float32 for continuous
     float* rewards;
     float* ctrl_trajectory_actions;
     float* previous_distance_to_goal;
@@ -248,6 +248,9 @@ struct Drive {
     float reward_vehicle_collision;
     float reward_offroad_collision;
     float reward_ade;
+    float reward_progression;
+    float reward_log_distance;
+    float reward_goal_reached;
     char* map_name;
     float world_mean_x;
     float world_mean_y;
@@ -1364,7 +1367,7 @@ void allocate(Drive* env){
     int max_obs = 7 + 7*(MAX_CARS - 1) + 7*MAX_ROAD_SEGMENT_OBSERVATIONS;
     env->observations = (float*)calloc(env->active_agent_count*max_obs, sizeof(float));
     if (env->action_type == 0) {
-        env->actions = (int*)calloc(env->active_agent_count*2, sizeof(int));
+        env->actions = (float*)calloc(env->active_agent_count*2, sizeof(float));
     } else if (env->action_type == 1) {
         env->actions = (float*)calloc(env->active_agent_count*2, sizeof(float));
     } else if (env->action_type == 2) {
@@ -1744,7 +1747,6 @@ void respawn_agent(Drive* env, int agent_idx){
 void c_step(Drive* env){
     memset(env->rewards, 0, env->active_agent_count * sizeof(float));
     memset(env->terminals, 0, env->active_agent_count * sizeof(unsigned char));
-
     env->timestep++;
     if(env->timestep == TRAJECTORY_LENGTH){
         add_log(env);
@@ -1765,24 +1767,31 @@ void c_step(Drive* env){
         env->logs[i].score = 0.0f;
 	    env->logs[i].episode_length += 1;
         int agent_idx = env->active_agent_indices[i];
-        if (env->entities[agent_idx].collision_state == 0)
+        if (env->action_type == 2)
         {
-            if (env->controller_type == 0)
+            if (env->entities[agent_idx].collision_state == 0)
             {
-                move_dynamics(env, i, agent_idx);
+                if (env->controller_type == 0)
+                {
+                    move_dynamics(env, i, agent_idx);
+                }
+                else if (env->controller_type == 1)
+                {
+                    move_dynamics_invertible(env, i, agent_idx);
+                }
+                else if (env->controller_type == 2)
+                {
+                    move_dynamics_tp(env, env->actions, agent_idx, traj_waypoints[i]);
+                }
+                else
+                {
+                    /** coverage */
+                }
             }
-            else if (env->controller_type == 1)
-            {
-                move_dynamics_invertible(env, i, agent_idx);
-            }
-            else if (env->controller_type == 2)
-            {
-                move_dynamics_tp(env, env->actions, agent_idx, traj_waypoints[i]);
-            }
-            else
-            {
-                /** coverage */
-            }
+        }
+        else{
+            env->entities[agent_idx].collision_state = 0;
+            move_dynamics(env, i, agent_idx);
         }
     }
     for(int i = 0; i < env->active_agent_count; i++){
@@ -1827,10 +1836,9 @@ void c_step(Drive* env){
                 distance_to_expert_min = distance_to_expert;
             }
         }
-        float distance_expert_reward = -0.008;
         if (distance_to_expert_min > 1.0f) {
-            env->rewards[i] += distance_expert_reward;
-            env->logs[i].episode_return += distance_expert_reward;
+            env->rewards[i] += env->reward_log_distance;
+            env->logs[i].episode_return += env->reward_log_distance;
         }
 
         /** Goal reached reward **/
@@ -1846,9 +1854,8 @@ void c_step(Drive* env){
                 env->logs[i].episode_return += env->reward_goal_post_respawn;
             } else {
                 // Reached goal reward
-                env->rewards[i] += 1.0f;
-                env->logs[i].episode_return += 1.0f;
-                //env->terminals[i] = 1;
+                env->rewards[i] += env->reward_goal_reached;
+                env->logs[i].episode_return += env->reward_goal_reached;
             }
             env->entities[agent_idx].reached_goal_this_episode = 1;
             env->entities[agent_idx].metrics_array[REACHED_GOAL_IDX] = 1.0f;
@@ -1858,7 +1865,7 @@ void c_step(Drive* env){
         float progression_reward = 0.0f;
         if ((env->previous_distance_to_goal[i] - distance_to_goal) > 0.0f)
         {
-            progression_reward = 0.01f;
+            progression_reward = env->reward_progression;
         }
         env->rewards[i] += progression_reward;
         env->logs[i].episode_return += progression_reward;
@@ -1885,9 +1892,17 @@ void c_step(Drive* env){
         int agent_idx = env->active_agent_indices[i];
         int reached_goal = env->entities[agent_idx].metrics_array[REACHED_GOAL_IDX];
         int collision_state = env->entities[agent_idx].collision_state;
-        bool respawn_if_coll_in_active_mode = (collision_state > 0) && (!env->dreaming_mode);
-        if((reached_goal) || (respawn_if_coll_in_active_mode)){
-            respawn_agent(env, agent_idx);
+        if (env->action_type == 2)
+        {
+            bool respawn_if_coll_in_active_mode = (collision_state > 0) && (!env->dreaming_mode);
+            if((reached_goal) || (respawn_if_coll_in_active_mode)){
+                respawn_agent(env, agent_idx);
+            }
+        }
+        else{
+            if(reached_goal){
+                respawn_agent(env, agent_idx);
+            }
         }
     }
     compute_observations(env);

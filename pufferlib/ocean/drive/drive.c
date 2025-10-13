@@ -67,7 +67,7 @@ void CloseVideo(VideoRecorder *recorder) {
     waitpid(recorder->pid, NULL, 0);
 }
 
-void renderTopDownView(Drive* env, Client* client, int map_height, int obs, int lasers, int trajectories, int frame_count, float* path, int log_trajectories, int show_grid) {
+void renderTopDownView(Drive* env, Client* client, int map_height, int obs, int lasers, int trajectories, int frame_count, float* path, int log_trajectories, int show_grid, float (*dream_traj)[2]) {
 
     BeginDrawing();
 
@@ -117,6 +117,24 @@ void renderTopDownView(Drive* env, Client* client, int map_height, int obs, int 
     if(trajectories){
         for(int i=0; i<frame_count; i++){
             DrawSphere((Vector3){path[i*2], path[i*2 +1], 0.8f}, 0.5f, YELLOW);
+        }
+    }
+
+    // Draw dreamed trajectories
+    if(env->action_type==2){ //2 = dreaming²
+        for(int i=0; i<env->active_agent_count;i++){
+            int idx = env->active_agent_indices[i];
+            for(int j=0; j<env->dreaming_steps-1;j++){
+
+                float x = dream_traj[i*env->dreaming_steps + j][0];
+                float y = dream_traj[i*env->dreaming_steps + j][1];
+                //print x,y
+                // printf("Waypoint: (%.2f, %.2f)\n", x, y);
+
+                // float valid = env->entities[idx].dream_traj_valid[j];
+                // if(!valid) continue;
+                DrawSphere((Vector3){x,y,0.5f}, 0.3f, Fade(ORANGE, 0.6f));
+            }
         }
     }
 
