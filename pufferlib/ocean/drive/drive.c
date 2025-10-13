@@ -547,7 +547,7 @@ int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int 
         .map_name = map_name,
         .spawn_immunity_timer = 50,
         .action_type = 2,
-        .controller_type = 2, // tp 2, classic 0, invertible 1
+        .controller_type = 1, // tp 2, classic 0, invertible 1
         .dreaming_steps = 10};
 
     allocate(&env);
