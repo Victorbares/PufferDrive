@@ -52,18 +52,19 @@ class Drive(pufferlib.PufferEnv):
         self.resample_frequency = resample_frequency
         self.num_obs = 7 + 63 * 7 + 200 * 7
         self.single_observation_space = gymnasium.spaces.Box(low=-1, high=1, shape=(self.num_obs,), dtype=np.float32)
-        # The policy now outputs 12 parameters for the polynomial trajectory
-        self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
 
         # The C backend still expects 2 continuous low-level actions
         self._action_type_flag = 0
         self._controller_type_flag = 0
         if action_type == "discrete":
             self._action_type_flag = 0
+            self.single_action_space = gymnasium.spaces.MultiDiscrete([7, 13])
         elif action_type == "continuous":
             self._action_type_flag = 1
+            self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32)
         elif action_type == "trajectory":
             self._action_type_flag = 2
+            self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
             if controller_type == "classic":
                 self._controller_type_flag = 0
             elif controller_type == "invertible":
