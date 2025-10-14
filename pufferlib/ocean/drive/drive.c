@@ -242,7 +242,7 @@ DriveNet* init_drivenet(Weights* weights, int num_agents) {
     net->gelu = make_gelu(num_agents, 3*input_size);
     net->shared_embedding = make_linear(weights, num_agents, input_size*3, hidden_size);
     net->relu = make_relu(num_agents, hidden_size);
-    net->actor = make_linear(weights, num_agents, hidden_size, 6);
+    net->actor = make_linear(weights, num_agents, hidden_size, 10);
     net->value_fn = make_linear(weights, num_agents, hidden_size, 1);
     net->lstm = make_lstm(weights, num_agents, hidden_size, 256);
     memset(net->lstm->state_h, 0, num_agents*256*sizeof(float));
@@ -398,14 +398,14 @@ void forward(DriveNet* net, float* observations, float* actions) {
     linear(net->value_fn, net->lstm->state_h);
     // Split actor output into loc and scale, apply softplus to scale
     for (int b = 0; b < net->num_agents; b++) {
-        float* params = &net->actor->output[b * 6];
+        float* params = &net->actor->output[b * 10];
         float* loc = params;
-        float* scale = params + 3;
-        for (int i = 0; i < 3; i++) {
+        float* scale = params + 5;
+        for (int i = 0; i < 5; i++) {
             float std = logf(1.0f + expf(scale[i])) + 1e-4f; // softplus
             // For deterministic: actions[b*12 + i] = loc[i];
             // For stochastic: sample from Normal(loc[i], std)
-            actions[b * 3 + i] = loc[i]; // Use mean for now
+            actions[b * 5 + i] = loc[i]; // Use mean for now
             // Optionally, you could also output std if needed
         }
     }
@@ -547,7 +547,7 @@ int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int 
         .map_name = map_name,
         .spawn_immunity_timer = 50,
         .action_type = 2,
-        .controller_type = 2, // tp 2, classic 0, invertible 1
+        .controller_type = 1, // tp 2, classic 0, invertible 1
         .dreaming_steps = 10};
 
     allocate(&env);
@@ -613,7 +613,7 @@ int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int 
                 rendered_frames++;
             }
 
-            float (*actions)[3] = (float (*)[3])env.actions;
+            float (*actions)[5] = (float (*)[5])env.actions;
             forward(net, env.observations, env.actions);
             int num_waypoints = env.dreaming_steps;
 
@@ -621,7 +621,7 @@ int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int 
             {
                 // FIXME create a function that handle traj
                 //  Handle trajectory actions
-                float (*trajectory_params)[3] = (float (*)[3])env.actions;
+                float (*trajectory_params)[5] = (float (*)[5])env.actions;
 
                 // Buffers for waypoints and low-level actions
                 float (*traj_waypoints)[num_waypoints][7] = (float(*)[num_waypoints][7])env.trajectory_waypoints;

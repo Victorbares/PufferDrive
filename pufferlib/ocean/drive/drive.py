@@ -67,7 +67,7 @@ class Drive(pufferlib.PufferEnv):
             self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(2,), dtype=np.float32)
         elif action_type == "trajectory":
             self._action_type_flag = 2
-            self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(3,), dtype=np.float32)
+            self.single_action_space = gymnasium.spaces.Box(low=-1, high=1, shape=(5,), dtype=np.float32)
             if controller_type == "classic":
                 self._controller_type_flag = 0
             elif controller_type == "invertible":

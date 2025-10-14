@@ -262,12 +262,14 @@ struct Drive {
 };
 
 
-static const float TRAJECTORY_SCALING_FACTORS[3] = {
+static const float TRAJECTORY_SCALING_FACTORS[5] = {
     // Longitudinal coefficients c0…c5
     // 30.0f, // c1: velocity term (m/s) 10
-    2.0f,  // c2: acceleration term (m/s²) 1.0
+    2.0f,  // c2: acceleration term (m/s²) 1.0,
+    2.0f, // c3 accel
     0.0f,  // c1: lateral velocity (m/s) 1.0 - TODO no C1 lat for the moment
     5.0f,  // c2: lateral acceleration (m/s²) 0.5
+    3.0f, // c3 lat
 };
 
 // --- MPC Controller ---
@@ -470,7 +472,7 @@ static inline float clip_value(float val, float min_val, float max_val) {
  * @param scaled_control_points Output array of 12 scaled float control points.
  */
 static inline void get_control_points(const float* action, float* scaled_control_points) {
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 5; ++i) {
         float clipped_action = clip_value(action[i], -1.0f, 1.0f);
         scaled_control_points[i] = clipped_action * TRAJECTORY_SCALING_FACTORS[i];
     }
@@ -1371,7 +1373,7 @@ void allocate(Drive* env){
     } else if (env->action_type == 1) {
         env->actions = (float*)calloc(env->active_agent_count*2, sizeof(float));
     } else if (env->action_type == 2) {
-        env->actions = (float*)calloc(env->active_agent_count*3, sizeof(float));
+        env->actions = (float*)calloc(env->active_agent_count*5, sizeof(float));
     } else {
         printf("Invalid action type. Must be 0 (discrete), 1 (continuous), or 2 (trajectory)\n");
         exit(1);
@@ -1740,7 +1742,6 @@ void respawn_agent(Drive* env, int i, int agent_idx){
     env->entities[agent_idx].cumulative_displacement = 0.0f;
     env->entities[agent_idx].displacement_sample_count = 0;
     env->entities[agent_idx].respawn_timestep = env->timestep;
-
     env->previous_distance_to_goal[i] = 10000.0f;
 }
 
@@ -2000,10 +2001,10 @@ void c_get_trajectories(Drive* env, int agent_idx, float* trajectory_params, flo
     float speed = sqrtf(sim_vx * sim_vx + sim_vy * sim_vy);
 
     /* 1) Get scaled control points (assumes this fills 12 floats: first 6 longi, next 6 lat) */
-    float scaled_control_points[3];
+    float scaled_control_points[5];
     get_control_points(trajectory_params, scaled_control_points);
 
-    const int degree = 2; /* polynomial degree */
+    const int degree = 3; /* polynomial degree */
     float coeffs_longitudinal[degree + 1];
     float coeffs_lateral[degree + 1];
     float coeffs_longi_d[degree];
@@ -2014,9 +2015,11 @@ void c_get_trajectories(Drive* env, int agent_idx, float* trajectory_params, flo
     coeffs_longitudinal[0] = 0.0f;
     coeffs_longitudinal[1] = speed;
     coeffs_longitudinal[2] = scaled_control_points[0];
+    coeffs_longitudinal[3] = scaled_control_points[1];
     coeffs_lateral[0] = 0.0f;
-    coeffs_lateral[1] = scaled_control_points[1];
-    coeffs_lateral[2] = scaled_control_points[2];
+    coeffs_lateral[1] = scaled_control_points[2];
+    coeffs_lateral[2] = scaled_control_points[3];
+    coeffs_lateral[3] = scaled_control_points[4];
 
     // Calculate derivatives of the coefficients
     polyder(coeffs_longitudinal, degree + 1, coeffs_longi_d);
@@ -2094,7 +2097,7 @@ void c_dream_step(Drive* env, int dreaming_steps) {
     env->current_dream_step = 0;
 
     // Trajectory parameters, trajectory waypoints, controlled_actions
-    float (*trajectory_params)[3] = (float(*)[3])env->actions;
+    float (*trajectory_params)[5] = (float(*)[5])env->actions;
     float (*traj_waypoints)[num_waypoints][7] = (float(*)[num_waypoints][7])env->trajectory_waypoints;
     float controlled_actions[env->active_agent_count][num_waypoints][2];
     float (*ctrl_actions_f)[2] = (float(*)[2])env->ctrl_trajectory_actions;
