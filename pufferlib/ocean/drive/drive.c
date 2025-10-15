@@ -521,9 +521,10 @@ int eval_gif(const char* map_name, int show_grid, int obs_only, int lasers, int 
     int random_map_idx = rand() % 600;
     char random_map_name[256];
     snprintf(random_map_name, sizeof(random_map_name), "resources/drive/binaries/map_%03d.bin", random_map_idx);
-    if (map_name == NULL) {
-        map_name = random_map_name;
-    }
+    // if (map_name == NULL) {
+    //     map_name = random_map_name;
+    // }
+    map_name = random_map_name;
 
     if (frame_skip <= 0) {
         frame_skip = 1;  // Default: render every frame

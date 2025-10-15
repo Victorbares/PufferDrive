@@ -284,9 +284,6 @@ class PuffeRL:
 
                 logits, value = self.policy.forward_eval(o_device, state)
                 action, logprob, _ = pufferlib.pytorch.sample_logits(logits)
-
-                # From params traj to continuous bicycle actions
-
                 r = torch.clamp(r, -1, 1)
 
             profile("eval_copy", epoch)
@@ -566,10 +563,7 @@ class PuffeRL:
                                 cmd.extend(["--map-name", map_path])
                         # Call C code that runs eval_gif() in subprocess
                         result = subprocess.run(
-                            cmd, cwd=os.getcwd(),capture_output= True, text=True, timeout=120, env=env
-                        )
-                        vids_exist = os.path.exists("resources/drive/output_topdown.mp4") and os.path.exists(
-                            "resources/drive/output_agent.mp4"
+                            cmd, cwd=os.getcwd(), capture_output=True, text=True, timeout=120, env=env
                         )
 
                         vids_exist = os.path.exists("resources/drive/output_topdown.mp4") and os.path.exists(
@@ -1273,7 +1267,7 @@ def profile(args=None, env_name=None, vecenv=None, policy=None):
     train_config = dict(**args["train"], env=args["env_name"], tag=args["tag"])
     pufferl = PuffeRL(train_config, vecenv, policy, neptune=args["neptune"], wandb=args["wandb"])
 
-    from torch.profiler import ProfilerActivity, profile, record_function
+    from torch.profiler import profile, record_function, ProfilerActivity
 
     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
         with record_function("model_inference"):

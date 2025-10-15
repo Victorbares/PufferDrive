@@ -33,6 +33,7 @@ class Drive(pufferlib.PufferEnv):
         num_agents=512,
         action_type="discrete",
         controller_type="classic",
+        use_respawn=True,
         buf=None,
         seed=1,
     ):

@@ -47,6 +47,7 @@ class Drive(nn.Module):
             self.atn_dim = (env.single_action_space.shape[0],) * 2
         else:
             self.atn_dim = env.single_action_space.nvec.tolist()
+
         self.actor = pufferlib.pytorch.layer_init(nn.Linear(hidden_size, sum(self.atn_dim)), std=0.01)
         self.value_fn = pufferlib.pytorch.layer_init(nn.Linear(hidden_size, 1), std=1)
 
@@ -92,6 +93,7 @@ class Drive(nn.Module):
         else:
             action = self.actor(flat_hidden)
             action = torch.split(action, self.atn_dim, dim=1)
+
         value = self.value_fn(flat_hidden)
 
         return action, value
